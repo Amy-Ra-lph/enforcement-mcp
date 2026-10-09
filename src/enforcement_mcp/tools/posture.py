@@ -7,6 +7,12 @@ from enforcement_mcp.parsers import (
     parse_getsebool,
     parse_semanage_login,
 )
+from enforcement_mcp.sanitize import (
+    SanitizationError,
+    quote_arg,
+    sanitize_path,
+    sanitize_process_name,
+)
 from enforcement_mcp.ssh import SSHBackend
 
 
@@ -53,9 +59,8 @@ async def host_posture(ssh: SSHBackend) -> dict:
     fapolicyd_info: dict
     if fap_installed:
         fap_active = (
-            (await ssh.execute("systemctl is-active fapolicyd 2>/dev/null")).stdout.strip()
-            == "active"
-        )
+            await ssh.execute("systemctl is-active fapolicyd 2>/dev/null")
+        ).stdout.strip() == "active"
         fap_rules_result = await ssh.execute(
             "cat /etc/fapolicyd/rules.d/*.rules 2>/dev/null | grep -c -v '^#\\|^$'"
         )
@@ -128,22 +133,30 @@ async def troubleshoot(
     chain.append({"step": "SELinux mode", "finding": mode})
 
     if mode != "disabled" and process:
+        try:
+            process = sanitize_process_name(process)
+        except SanitizationError as e:
+            return e.to_dict()
         avc_result = await ssh.execute(
-            f"ausearch -m AVC -ts recent 2>/dev/null | grep '{process}'"
+            f"ausearch -m AVC -ts recent 2>/dev/null | grep {quote_arg(process)}"
         )
         avc_denials = parse_avc_denials(avc_result.stdout)
         if avc_denials:
-            chain.append({
-                "step": f"AVC denials for {process}",
-                "finding": f"{len(avc_denials)} denial(s) found",
-            })
+            chain.append(
+                {
+                    "step": f"AVC denials for {process}",
+                    "finding": f"{len(avc_denials)} denial(s) found",
+                }
+            )
             denials_found.extend(avc_denials)
         else:
             chain.append({"step": f"AVC denials for {process}", "finding": "none"})
-            not_the_cause.append({
-                "subsystem": "selinux",
-                "reason": f"No AVC denials for {process}",
-            })
+            not_the_cause.append(
+                {
+                    "subsystem": "selinux",
+                    "reason": f"No AVC denials for {process}",
+                }
+            )
     elif mode == "disabled":
         not_the_cause.append({"subsystem": "selinux", "reason": "SELinux is disabled"})
 
@@ -154,32 +167,44 @@ async def troubleshoot(
         if path:
             fap_denials = [d for d in fap_denials if path in str(d.get("exe", ""))]
         if fap_denials:
-            chain.append({
-                "step": "fapolicyd denials",
-                "finding": f"{len(fap_denials)} denial(s) found",
-            })
+            chain.append(
+                {
+                    "step": "fapolicyd denials",
+                    "finding": f"{len(fap_denials)} denial(s) found",
+                }
+            )
             denials_found.extend(fap_denials)
         else:
             chain.append({"step": "fapolicyd denials", "finding": "none"})
-            not_the_cause.append({
-                "subsystem": "fapolicyd",
-                "reason": "No FANOTIFY denials",
-            })
+            not_the_cause.append(
+                {
+                    "subsystem": "fapolicyd",
+                    "reason": "No FANOTIFY denials",
+                }
+            )
     else:
-        not_the_cause.append({
-            "subsystem": "fapolicyd",
-            "reason": "fapolicyd not installed",
-        })
+        not_the_cause.append(
+            {
+                "subsystem": "fapolicyd",
+                "reason": "fapolicyd not installed",
+            }
+        )
 
     if path:
-        dac_result = await ssh.execute(f"ls -la {path} 2>/dev/null")
+        try:
+            path = sanitize_path(path)
+        except SanitizationError as e:
+            return e.to_dict()
+        dac_result = await ssh.execute(f"ls -la {quote_arg(path)} 2>/dev/null")
         if dac_result.success:
             chain.append({"step": "DAC permissions", "finding": dac_result.stdout.strip()})
         else:
-            chain.append({
-                "step": "DAC permissions",
-                "finding": "path not found or not accessible",
-            })
+            chain.append(
+                {
+                    "step": "DAC permissions",
+                    "finding": "path not found or not accessible",
+                }
+            )
 
     root_cause = "unknown"
     confidence = "low"

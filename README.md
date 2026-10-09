@@ -146,7 +146,7 @@ the remote host. Entries include caller identity, tool name, parameters
 # Install dev dependencies
 uv sync --extra dev
 
-# Run tests (236 tests)
+# Run tests (295 tests)
 uv run pytest tests/ -v
 
 # Lint

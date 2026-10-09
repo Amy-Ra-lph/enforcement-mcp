@@ -28,8 +28,7 @@ class TestSetBoolean:
                 return make_result("Enforcing")
             if "sesearch" in cmd:
                 return make_result(
-                    "allow httpd_t user_home_t : file { read } ; "
-                    "[ httpd_enable_homedirs ]:True\n"
+                    "allow httpd_t user_home_t : file { read } ; [ httpd_enable_homedirs ]:True\n"
                 )
             if "getsebool" in cmd:
                 return make_result("httpd_enable_homedirs --> off")
@@ -37,9 +36,7 @@ class TestSetBoolean:
 
         mock_ssh.execute = mock_execute
 
-        result = await set_boolean(
-            mock_ssh, name="httpd_enable_homedirs", value=True, dry_run=True
-        )
+        result = await set_boolean(mock_ssh, name="httpd_enable_homedirs", value=True, dry_run=True)
         assert result["status"] == "preview"
         assert result["current_value"] == "off"
         assert result["new_value"] == "on"
@@ -88,10 +85,10 @@ class TestGenerateModule:
         avc_line = (
             "----\n"
             "time->Thu Oct  9 14:32:01 2026\n"
-            'type=AVC msg=audit(1760012521.123:456): avc:  denied  { read } '
+            "type=AVC msg=audit(1760012521.123:456): avc:  denied  { read } "
             'for  pid=4821 comm="httpd" name="index.html" '
-            'scontext=system_u:system_r:httpd_t:s0 '
-            'tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file permissive=0\n'
+            "scontext=system_u:system_r:httpd_t:s0 "
+            "tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file permissive=0\n"
         )
 
         async def mock_execute(cmd):

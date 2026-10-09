@@ -73,7 +73,11 @@ class TestFetchCveSync:
         from urllib.error import HTTPError
 
         mock_urlopen.side_effect = HTTPError(
-            url="", code=404, msg="Not Found", hdrs=None, fp=None  # type: ignore[arg-type]
+            url="",
+            code=404,
+            msg="Not Found",
+            hdrs=None,
+            fp=None,  # type: ignore[arg-type]
         )
         result = _fetch_cve_sync("CVE-9999-0000")
         assert result["error"] == "not_found"

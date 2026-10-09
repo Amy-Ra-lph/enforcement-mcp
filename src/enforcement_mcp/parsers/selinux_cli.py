@@ -16,10 +16,12 @@ def parse_getsebool(raw: str) -> list[dict]:
             continue
         parts = line.split("-->")
         if len(parts) == 2:
-            results.append({
-                "name": parts[0].strip(),
-                "state": parts[1].strip(),
-            })
+            results.append(
+                {
+                    "name": parts[0].strip(),
+                    "state": parts[1].strip(),
+                }
+            )
     return results
 
 
@@ -38,13 +40,9 @@ def parse_sesearch_allow(raw: str) -> list[dict]:
             conditional = cond_match.group(1)
             conditional_state = cond_match.group(2) == "True"
 
-        rule_match = re.match(
-            r"allow\s+(\S+)\s+(\S+)\s*:\s*(\S+)\s+\{([^}]+)\}", line
-        )
+        rule_match = re.match(r"allow\s+(\S+)\s+(\S+)\s*:\s*(\S+)\s+\{([^}]+)\}", line)
         if not rule_match:
-            rule_match = re.match(
-                r"allow\s+(\S+)\s+(\S+)\s*:\s*(\S+)\s+(\S+)\s*;", line
-            )
+            rule_match = re.match(r"allow\s+(\S+)\s+(\S+)\s*:\s*(\S+)\s+(\S+)\s*;", line)
             if rule_match:
                 rule: dict = {
                     "source": rule_match.group(1),
@@ -101,9 +99,11 @@ def parse_semanage_login(raw: str) -> list[dict]:
             continue
         parts = line.split()
         if len(parts) >= 3:
-            results.append({
-                "login": parts[0],
-                "selinux_user": parts[1],
-                "range": parts[2],
-            })
+            results.append(
+                {
+                    "login": parts[0],
+                    "selinux_user": parts[1],
+                    "range": parts[2],
+                }
+            )
     return results

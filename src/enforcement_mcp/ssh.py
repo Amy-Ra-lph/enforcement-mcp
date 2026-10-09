@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 
 import paramiko
@@ -26,6 +27,15 @@ class CommandResult:
         return self.stdout.strip()
 
 
+def _get_host_key_policy() -> paramiko.MissingHostKeyPolicy:
+    policy = os.environ.get("ENFORCEMENT_MCP_SSH_HOST_KEY_POLICY", "warn")
+    if policy == "reject":
+        return paramiko.RejectPolicy()
+    if policy == "auto":
+        return paramiko.AutoAddPolicy()
+    return paramiko.WarningPolicy()
+
+
 class SSHBackend:
     """Execute commands on remote hosts via SSH."""
 
@@ -45,7 +55,8 @@ class SSHBackend:
     async def connect(self) -> None:
         def _connect() -> paramiko.SSHClient:
             client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.load_system_host_keys()
+            client.set_missing_host_key_policy(_get_host_key_policy())
             kwargs: dict = {
                 "hostname": self.host,
                 "username": self.user,

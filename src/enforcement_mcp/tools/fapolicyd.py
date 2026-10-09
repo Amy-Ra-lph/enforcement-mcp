@@ -5,6 +5,11 @@ from enforcement_mcp.parsers import (
     parse_fapolicyd_rules,
     parse_time_spec,
 )
+from enforcement_mcp.sanitize import (
+    SanitizationError,
+    quote_arg,
+    sanitize_path,
+)
 from enforcement_mcp.ssh import SSHBackend
 
 FAPOLICYD_NOT_INSTALLED_ERROR = {
@@ -56,10 +61,17 @@ async def fapolicyd_denials(ssh: SSHBackend, since: str = "24h") -> dict:
 
 async def fapolicyd_trust_check(ssh: SSHBackend, path: str) -> dict:
     """Check whether a specific binary is trusted by fapolicyd."""
+    try:
+        path = sanitize_path(path)
+    except SanitizationError as e:
+        return e.to_dict()
+
     if not await _check_fapolicyd_installed(ssh):
         return FAPOLICYD_NOT_INSTALLED_ERROR
 
-    db_result = await ssh.execute(f"fapolicyd-cli --dump-db 2>/dev/null | grep '{path} '")
+    db_result = await ssh.execute(
+        f"fapolicyd-cli --dump-db 2>/dev/null | grep {quote_arg(path + ' ')}"
+    )
     if db_result.success and db_result.stdout.strip():
         parts = db_result.stdout.strip().split("\n")[0].split()
         return {
@@ -70,7 +82,7 @@ async def fapolicyd_trust_check(ssh: SSHBackend, path: str) -> dict:
             "sha256": parts[3] if len(parts) > 3 else None,
         }
 
-    rpm_result = await ssh.execute(f"rpm -qf {path} 2>/dev/null")
+    rpm_result = await ssh.execute(f"rpm -qf {quote_arg(path)} 2>/dev/null")
     if rpm_result.success and "not owned" not in rpm_result.stdout:
         return {
             "path": path,

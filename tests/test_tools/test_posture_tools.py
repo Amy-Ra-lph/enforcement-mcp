@@ -11,22 +11,24 @@ from tests.conftest import make_result
 class TestHostPosture:
     @pytest.mark.asyncio
     async def test_returns_full_posture(self, mock_ssh):
-        mock_ssh.execute = AsyncMock(side_effect=[
-            make_result("Enforcing"),
-            make_result("SELINUXTYPE=targeted"),
-            make_result("<no matches>"),
-            make_result(""),
-            make_result("httpd_enable_homedirs --> off\n"),
-            make_result("", exit_code=0),
-            make_result("active"),
-            make_result("15"),
-            make_result("48231"),
-            make_result("<no matches>"),
-            make_result(
-                "Login Name           SELinux User         MLS/MCS Range\n"
-                "__default__          unconfined_u         s0-s0:c0.c1023\n"
-            ),
-        ])
+        mock_ssh.execute = AsyncMock(
+            side_effect=[
+                make_result("Enforcing"),
+                make_result("SELINUXTYPE=targeted"),
+                make_result("<no matches>"),
+                make_result(""),
+                make_result("httpd_enable_homedirs --> off\n"),
+                make_result("", exit_code=0),
+                make_result("active"),
+                make_result("15"),
+                make_result("48231"),
+                make_result("<no matches>"),
+                make_result(
+                    "Login Name           SELinux User         MLS/MCS Range\n"
+                    "__default__          unconfined_u         s0-s0:c0.c1023\n"
+                ),
+            ]
+        )
 
         result = await host_posture(mock_ssh)
         assert "selinux" in result
@@ -44,18 +46,20 @@ class TestTroubleshoot:
         avc_line = (
             "----\n"
             "time->Thu Oct  9 14:32:01 2026\n"
-            'type=AVC msg=audit(1760012521.123:456): avc:  denied  { read } '
+            "type=AVC msg=audit(1760012521.123:456): avc:  denied  { read } "
             'for  pid=4821 comm="httpd" name="index.html" '
-            'scontext=system_u:system_r:httpd_t:s0 '
-            'tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file permissive=0\n'
+            "scontext=system_u:system_r:httpd_t:s0 "
+            "tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file permissive=0\n"
         )
-        mock_ssh.execute = AsyncMock(side_effect=[
-            make_result("Enforcing"),
-            make_result(avc_line),
-            make_result("", exit_code=0),
-            make_result("<no matches>"),
-            make_result("drwxr-xr-x. root root /home/jsmith/public_html\n"),
-        ])
+        mock_ssh.execute = AsyncMock(
+            side_effect=[
+                make_result("Enforcing"),
+                make_result(avc_line),
+                make_result("", exit_code=0),
+                make_result("<no matches>"),
+                make_result("drwxr-xr-x. root root /home/jsmith/public_html\n"),
+            ]
+        )
 
         result = await troubleshoot(
             mock_ssh,
@@ -70,13 +74,15 @@ class TestTroubleshoot:
 
     @pytest.mark.asyncio
     async def test_no_enforcement_issue(self, mock_ssh):
-        mock_ssh.execute = AsyncMock(side_effect=[
-            make_result("Enforcing"),
-            make_result("<no matches>"),
-            make_result("", exit_code=0),
-            make_result("<no matches>"),
-            make_result("-rw-r--r--. root root /var/www/html/index.html\n"),
-        ])
+        mock_ssh.execute = AsyncMock(
+            side_effect=[
+                make_result("Enforcing"),
+                make_result("<no matches>"),
+                make_result("", exit_code=0),
+                make_result("<no matches>"),
+                make_result("-rw-r--r--. root root /var/www/html/index.html\n"),
+            ]
+        )
 
         result = await troubleshoot(
             mock_ssh,

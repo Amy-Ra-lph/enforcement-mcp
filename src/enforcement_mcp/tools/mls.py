@@ -1,6 +1,11 @@
 """MLS diagnosis tools."""
 
 from enforcement_mcp.parsers import parse_semanage_login
+from enforcement_mcp.sanitize import (
+    SanitizationError,
+    quote_arg,
+    sanitize_path,
+)
 from enforcement_mcp.ssh import SSHBackend
 
 
@@ -19,7 +24,11 @@ async def mls_file_level(
 ) -> dict:
     """Get MLS level of a file or process."""
     if path:
-        result = await ssh.execute(f"ls -dZ {path} 2>/dev/null")
+        try:
+            path = sanitize_path(path)
+        except SanitizationError as e:
+            return e.to_dict()
+        result = await ssh.execute(f"ls -dZ {quote_arg(path)} 2>/dev/null")
     elif pid:
         result = await ssh.execute(f"ps -p {pid} -Z --no-headers 2>/dev/null")
     else:
@@ -59,7 +68,8 @@ async def mls_categories(ssh: SSHBackend) -> dict:
     cat_result = await ssh.execute("seinfo --category 2>/dev/null")
 
     sensitivities = [
-        s.strip() for s in sens_result.stdout.strip().split("\n")
+        s.strip()
+        for s in sens_result.stdout.strip().split("\n")
         if s.strip() and not s.strip().startswith("Sensitivities:")
     ]
     categories = [

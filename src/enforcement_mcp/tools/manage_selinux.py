@@ -7,6 +7,14 @@ from enforcement_mcp.parsers import (
     parse_time_spec,
 )
 from enforcement_mcp.risk import score_boolean_change, score_module_change
+from enforcement_mcp.sanitize import (
+    SanitizationError,
+    quote_arg,
+    sanitize_cil,
+    sanitize_context_path,
+    sanitize_identifier,
+    sanitize_selinux_type,
+)
 from enforcement_mcp.ssh import SSHBackend
 
 SELINUX_DISABLED_ERROR = {
@@ -30,11 +38,16 @@ async def set_boolean(
     dry_run: bool = True,
 ) -> dict:
     """Toggle an SELinux boolean with risk assessment."""
+    try:
+        name = sanitize_identifier(name, "name")
+    except SanitizationError as e:
+        return e.to_dict()
+
     check = await _check_enforcing(ssh)
     if isinstance(check, dict):
         return check
 
-    cmd = f"sesearch --allow -b {name} 2>/dev/null"
+    cmd = f"sesearch --allow -b {quote_arg(name)} 2>/dev/null"
     result = await ssh.execute(cmd)
     rules_raw = parse_sesearch_allow(result.stdout)
     domains = list({r["source"] for r in rules_raw})
@@ -48,7 +61,7 @@ async def set_boolean(
 
     val_str = "on" if value else "off"
     persist_flag = " -P" if persistent else ""
-    execute_cmd = f"setsebool{persist_flag} {name} {val_str}"
+    execute_cmd = f"setsebool{persist_flag} {quote_arg(name)} {val_str}"
 
     preview = {
         "action": "set_boolean",
@@ -62,7 +75,7 @@ async def set_boolean(
         "risk_assessment": risk,
     }
 
-    current = await ssh.execute(f"getsebool {name}")
+    current = await ssh.execute(f"getsebool {quote_arg(name)}")
     if "-->" in current.stdout:
         preview["current_value"] = current.stdout.split("-->")[1].strip()
 
@@ -81,7 +94,7 @@ async def set_boolean(
         preview["error"] = exec_result.stderr.strip()
         return preview
 
-    verify = await ssh.execute(f"getsebool {name}")
+    verify = await ssh.execute(f"getsebool {quote_arg(name)}")
     verify_val = ""
     if "-->" in verify.stdout:
         verify_val = verify.stdout.split("-->")[1].strip()
@@ -98,6 +111,13 @@ async def generate_module(
     source_type: str | None = None,
 ) -> dict:
     """Generate a targeted CIL module from observed denials."""
+    try:
+        name = sanitize_identifier(name, "name")
+        if source_type:
+            source_type = sanitize_selinux_type(source_type, "source_type")
+    except SanitizationError as e:
+        return e.to_dict()
+
     check = await _check_enforcing(ssh)
     if isinstance(check, dict):
         return check
@@ -105,7 +125,7 @@ async def generate_module(
     ts = parse_time_spec(from_denials)
     cmd = f"ausearch -m AVC -ts {ts} 2>/dev/null"
     if source_type:
-        cmd += f" | grep 'scontext=.*:{source_type}:'"
+        cmd += f" | grep 'scontext=.*:{quote_arg(source_type)}:'"
 
     result = await ssh.execute(cmd)
     denials = parse_avc_denials(result.stdout)
@@ -130,20 +150,19 @@ async def generate_module(
         if key in seen:
             continue
         seen.add(key)
-        rules.append({
-            "source": d["source_type"],
-            "target": d["target_type"],
-            "tclass": d["tclass"],
-            "permissions": perms,
-        })
+        rules.append(
+            {
+                "source": d["source_type"],
+                "target": d["target_type"],
+                "tclass": d["tclass"],
+                "permissions": perms,
+            }
+        )
 
     cil_lines = [f"(block {name}"]
     for r in rules:
         perm_str = " ".join(r["permissions"])
-        cil_lines.append(
-            f"  (allow {r['source']} {r['target']} "
-            f"({r['tclass']} ({perm_str})))"
-        )
+        cil_lines.append(f"  (allow {r['source']} {r['target']} ({r['tclass']} ({perm_str})))")
     cil_lines.append(")")
     cil_content = "\n".join(cil_lines)
 
@@ -152,17 +171,19 @@ async def generate_module(
     bool_alternatives = []
     for r in rules:
         bool_cmd = (
-            f"sesearch --allow -s {r['source']} -t {r['target']} "
-            f"-c {r['tclass']} -b 2>/dev/null"
+            f"sesearch --allow -s {quote_arg(r['source'])} -t {quote_arg(r['target'])} "
+            f"-c {quote_arg(r['tclass'])} -b 2>/dev/null"
         )
         bool_result = await ssh.execute(bool_cmd)
         bool_rules = parse_sesearch_allow(bool_result.stdout)
         for br in bool_rules:
             if br.get("conditional"):
-                bool_alternatives.append({
-                    "boolean": br["conditional"],
-                    "would_fix": f"{r['source']} -> {r['target']}:{r['tclass']}",
-                })
+                bool_alternatives.append(
+                    {
+                        "boolean": br["conditional"],
+                        "would_fix": f"{r['source']} -> {r['target']}:{r['tclass']}",
+                    }
+                )
 
     return {
         "action": "generate_module",
@@ -184,6 +205,12 @@ async def load_module(
     dry_run: bool = True,
 ) -> dict:
     """Load a CIL policy module."""
+    try:
+        name = sanitize_identifier(name, "name")
+        cil = sanitize_cil(cil, "cil")
+    except SanitizationError as e:
+        return e.to_dict()
+
     check = await _check_enforcing(ssh)
     if isinstance(check, dict):
         return check
@@ -194,11 +221,13 @@ async def load_module(
         if line.startswith("(allow "):
             parts = line.strip("()").split()
             if len(parts) >= 3:
-                cil_rules.append({
-                    "source": parts[1],
-                    "target": parts[2],
-                    "permissions": [],
-                })
+                cil_rules.append(
+                    {
+                        "source": parts[1],
+                        "target": parts[2],
+                        "permissions": [],
+                    }
+                )
 
     risk = score_module_change(name=name, cil_rules=cil_rules)
 
@@ -211,7 +240,7 @@ async def load_module(
 
     if dry_run:
         preview["status"] = "preview"
-        preview["command"] = f"semodule -i /tmp/{name}.cil"
+        preview["command"] = f"semodule -i <tmpdir>/{name}.cil"
         return preview
 
     if risk["risk_level"] == "critical":
@@ -219,16 +248,24 @@ async def load_module(
         preview["reason"] = "Risk level is critical"
         return preview
 
-    write_result = await ssh.execute(
-        f"cat > /tmp/{name}.cil << 'EMCP_EOF'\n{cil}\nEMCP_EOF"
-    )
+    tmpdir_result = await ssh.execute("mktemp -d /tmp/emcp.XXXXXXXX")
+    if not tmpdir_result.success:
+        preview["status"] = "failed"
+        preview["error"] = "Failed to create temp directory"
+        return preview
+    tmpdir = tmpdir_result.stdout.strip()
+
+    cil_path = f"{tmpdir}/{name}.cil"
+    write_result = await ssh.execute(f"cat > {quote_arg(cil_path)} << 'EMCP_EOF'\n{cil}\nEMCP_EOF")
     if not write_result.success:
+        await ssh.execute(f"rm -rf {quote_arg(tmpdir)}")
         preview["status"] = "failed"
         preview["error"] = "Failed to write CIL file"
         return preview
 
-    install_result = await ssh.execute(f"semodule -i /tmp/{name}.cil")
+    install_result = await ssh.execute(f"semodule -i {quote_arg(cil_path)}")
     if not install_result.success:
+        await ssh.execute(f"rm -rf {quote_arg(tmpdir)}")
         preview["status"] = "failed"
         preview["error"] = install_result.stderr.strip()
         return preview
@@ -237,7 +274,7 @@ async def load_module(
     preview["status"] = "applied"
     preview["verified_loaded"] = bool(verify.stdout.strip())
 
-    await ssh.execute(f"rm -f /tmp/{name}.cil")
+    await ssh.execute(f"rm -rf {quote_arg(tmpdir)}")
     return preview
 
 
@@ -247,6 +284,11 @@ async def remove_module(
     dry_run: bool = True,
 ) -> dict:
     """Remove a loaded policy module."""
+    try:
+        name = sanitize_identifier(name, "name")
+    except SanitizationError as e:
+        return e.to_dict()
+
     check = await _check_enforcing(ssh)
     if isinstance(check, dict):
         return check
@@ -263,18 +305,17 @@ async def remove_module(
     preview = {
         "action": "remove_module",
         "name": name,
-        "command": f"semodule -r {name}",
+        "command": f"semodule -r {quote_arg(name)}",
     }
 
     if dry_run:
         preview["status"] = "preview"
         preview["warning"] = (
-            "Removing this module may cause denials to resume "
-            "for the access it was allowing"
+            "Removing this module may cause denials to resume for the access it was allowing"
         )
         return preview
 
-    result = await ssh.execute(f"semodule -r {name}")
+    result = await ssh.execute(f"semodule -r {quote_arg(name)}")
     if not result.success:
         preview["status"] = "failed"
         preview["error"] = result.stderr.strip()
@@ -293,12 +334,19 @@ async def set_file_context(
     dry_run: bool = True,
 ) -> dict:
     """Add a persistent file context rule and relabel."""
+    try:
+        path = sanitize_context_path(path, "path")
+        context_type = sanitize_selinux_type(context_type, "context_type")
+    except SanitizationError as e:
+        return e.to_dict()
+
     check = await _check_enforcing(ssh)
     if isinstance(check, dict):
         return check
 
-    fcontext_cmd = f"semanage fcontext -a -t {context_type} '{path}'"
-    restorecon_cmd = f"restorecon -Rv {path.split('(')[0]}"
+    fcontext_cmd = f"semanage fcontext -a -t {quote_arg(context_type)} {quote_arg(path)}"
+    restorecon_path = path.split("(")[0]
+    restorecon_cmd = f"restorecon -Rv {quote_arg(restorecon_path)}"
 
     preview = {
         "action": "set_file_context",
@@ -314,7 +362,7 @@ async def set_file_context(
     fc_result = await ssh.execute(fcontext_cmd)
     if not fc_result.success:
         if "already defined" in fc_result.stderr:
-            mod_cmd = f"semanage fcontext -m -t {context_type} '{path}'"
+            mod_cmd = f"semanage fcontext -m -t {quote_arg(context_type)} {quote_arg(path)}"
             fc_result = await ssh.execute(mod_cmd)
 
         if not fc_result.success:

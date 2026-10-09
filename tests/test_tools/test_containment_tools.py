@@ -38,9 +38,7 @@ class TestCveContain:
             if "getenforce" in cmd:
                 return make_result("Enforcing")
             if "sesearch" in cmd:
-                return make_result(
-                    "allow sshd_t tmp_t : file { read write } ;"
-                )
+                return make_result("allow sshd_t tmp_t : file { read write } ;")
             return make_result("")
 
         mock_ssh.execute = mock_execute
@@ -127,9 +125,11 @@ class TestContainmentExpire:
 
     @pytest.mark.asyncio
     async def test_module_already_removed(self, mock_ssh):
-        state = json.dumps([
-            {"cve_id": "CVE-2024-6387", "module_name": "emcp_cve_2024_6387_minimal"},
-        ])
+        state = json.dumps(
+            [
+                {"cve_id": "CVE-2024-6387", "module_name": "emcp_cve_2024_6387_minimal"},
+            ]
+        )
 
         async def mock_execute(cmd):
             if "cat" in cmd:
@@ -145,13 +145,15 @@ class TestContainmentExpire:
 
     @pytest.mark.asyncio
     async def test_patched_safe_to_remove(self, mock_ssh):
-        state = json.dumps([
-            {
-                "cve_id": "CVE-2024-6387",
-                "module_name": "emcp_cve_2024_6387_minimal",
-                "fixed_in": ["openssh-9.6p1-1.el9"],
-            },
-        ])
+        state = json.dumps(
+            [
+                {
+                    "cve_id": "CVE-2024-6387",
+                    "module_name": "emcp_cve_2024_6387_minimal",
+                    "fixed_in": ["openssh-9.6p1-1.el9"],
+                },
+            ]
+        )
 
         async def mock_execute(cmd):
             if "cat" in cmd:
@@ -171,13 +173,15 @@ class TestContainmentExpire:
 
     @pytest.mark.asyncio
     async def test_not_patched_unsafe_to_remove(self, mock_ssh):
-        state = json.dumps([
-            {
-                "cve_id": "CVE-2024-6387",
-                "module_name": "emcp_cve_2024_6387_minimal",
-                "fixed_in": ["openssh-9.6p1-1.el9"],
-            },
-        ])
+        state = json.dumps(
+            [
+                {
+                    "cve_id": "CVE-2024-6387",
+                    "module_name": "emcp_cve_2024_6387_minimal",
+                    "fixed_in": ["openssh-9.6p1-1.el9"],
+                },
+            ]
+        )
 
         async def mock_execute(cmd):
             if "cat" in cmd:

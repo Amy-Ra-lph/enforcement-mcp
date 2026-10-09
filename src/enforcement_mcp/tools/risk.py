@@ -95,10 +95,12 @@ def _parse_cil_rules(cil: str) -> list[dict]:
                     if len(class_parts) > 1:
                         perms = class_parts[1].strip().rstrip(")").split()
 
-                rules.append({
-                    "source": source,
-                    "target": target,
-                    "tclass": tclass,
-                    "permissions": perms,
-                })
+                rules.append(
+                    {
+                        "source": source,
+                        "target": target,
+                        "tclass": tclass,
+                        "permissions": perms,
+                    }
+                )
     return rules

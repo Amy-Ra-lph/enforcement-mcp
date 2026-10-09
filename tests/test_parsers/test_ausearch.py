@@ -62,9 +62,9 @@ class TestParseFanotifyDenials:
         raw = (
             "----\n"
             "time->Wed Oct  8 14:40:00 2026\n"
-            'type=FANOTIFY msg=audit(1760013600.123:100): resp=2 '
+            "type=FANOTIFY msg=audit(1760013600.123:100): resp=2 "
             'pid=5678 uid=1000 exe="/tmp/payload" '
-            'subj=unconfined_u:unconfined_r:unconfined_t:s0 obj_trust=0\n'
+            "subj=unconfined_u:unconfined_r:unconfined_t:s0 obj_trust=0\n"
         )
         result = parse_fanotify_denials(raw)
         assert len(result) == 1

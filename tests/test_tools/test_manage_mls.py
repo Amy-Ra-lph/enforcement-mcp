@@ -17,9 +17,7 @@ class TestMlsAssignCategory:
     @pytest.mark.asyncio
     async def test_dry_run_preview(self, mock_ssh):
         mock_ssh.execute = AsyncMock(
-            return_value=make_result(
-                "system_u:object_r:default_t:s0 /data/classified"
-            )
+            return_value=make_result("system_u:object_r:default_t:s0 /data/classified")
         )
         result = await mls_assign_category(
             mock_ssh, path="/data/classified", categories=["c5", "c10"], dry_run=True
@@ -36,15 +34,11 @@ class TestMlsAssignCategory:
             nonlocal call_count
             call_count += 1
             if "ls -dZ" in cmd and call_count == 1:
-                return make_result(
-                    "system_u:object_r:default_t:s0 /data/classified"
-                )
+                return make_result("system_u:object_r:default_t:s0 /data/classified")
             if "chcat" in cmd:
                 return make_result("")
             if "ls -dZ" in cmd:
-                return make_result(
-                    "system_u:object_r:default_t:s0:c5,c10 /data/classified"
-                )
+                return make_result("system_u:object_r:default_t:s0:c5,c10 /data/classified")
             return make_result("")
 
         mock_ssh.execute = mock_execute
@@ -75,18 +69,14 @@ class TestMlsAssignCategory:
 class TestMlsSetUserRange:
     @pytest.mark.asyncio
     async def test_root_restriction_blocked(self, mock_ssh):
-        result = await mls_set_user_range(
-            mock_ssh, login="root", range_spec="s0:c5"
-        )
+        result = await mls_set_user_range(mock_ssh, login="root", range_spec="s0:c5")
         assert result["status"] == "blocked"
         assert "lockout" in result["reason"].lower()
 
     @pytest.mark.asyncio
     async def test_root_full_range_allowed(self, mock_ssh):
         mock_ssh.execute = AsyncMock(
-            return_value=make_result(
-                "root             unconfined_u         s0-s0:c0.c1023"
-            )
+            return_value=make_result("root             unconfined_u         s0-s0:c0.c1023")
         )
         result = await mls_set_user_range(
             mock_ssh, login="root", range_spec="s0-s0:c0.c1023", dry_run=True
@@ -96,17 +86,13 @@ class TestMlsSetUserRange:
     @pytest.mark.asyncio
     async def test_user_not_found(self, mock_ssh):
         mock_ssh.execute = AsyncMock(return_value=make_result(""))
-        result = await mls_set_user_range(
-            mock_ssh, login="nonexistent", range_spec="s0:c5"
-        )
+        result = await mls_set_user_range(mock_ssh, login="nonexistent", range_spec="s0:c5")
         assert result["status"] == "not_found"
 
     @pytest.mark.asyncio
     async def test_dry_run_preview(self, mock_ssh):
         mock_ssh.execute = AsyncMock(
-            return_value=make_result(
-                "contractor       user_u               s0-s0:c0.c1023       *"
-            )
+            return_value=make_result("contractor       user_u               s0-s0:c0.c1023       *")
         )
         result = await mls_set_user_range(
             mock_ssh, login="contractor", range_spec="s0:c5,c10", dry_run=True
@@ -123,15 +109,11 @@ class TestMlsSetUserRange:
             nonlocal call_count
             call_count += 1
             if "semanage login -l" in cmd and call_count == 1:
-                return make_result(
-                    "contractor       user_u               s0-s0:c0.c1023       *"
-                )
+                return make_result("contractor       user_u               s0-s0:c0.c1023       *")
             if "semanage login -m" in cmd:
                 return make_result("")
             if "semanage login -l" in cmd:
-                return make_result(
-                    "contractor       user_u               s0:c5,c10            *"
-                )
+                return make_result("contractor       user_u               s0:c5,c10            *")
             return make_result("")
 
         mock_ssh.execute = mock_execute

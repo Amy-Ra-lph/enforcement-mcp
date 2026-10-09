@@ -1,5 +1,13 @@
 """MLS management tools (Tier 3 — mutating, risk-gated)."""
 
+from enforcement_mcp.sanitize import (
+    SanitizationError,
+    quote_arg,
+    sanitize_login,
+    sanitize_mls_categories,
+    sanitize_mls_range,
+    sanitize_path,
+)
 from enforcement_mcp.ssh import SSHBackend
 
 
@@ -18,11 +26,18 @@ async def mls_assign_category(
             "message": "At least one category required",
         }
 
-    cat_str = ",".join(categories)
-    recursive_flag = " -R" if recursive else ""
-    cmd = f"chcat{recursive_flag} +{cat_str} {path}"
+    try:
+        path = sanitize_path(path)
+        categories = sanitize_mls_categories(categories)
+    except SanitizationError as e:
+        return e.to_dict()
 
-    current = await ssh.execute(f"ls -dZ {path} 2>/dev/null")
+    cat_str = ",".join(categories)
+    qpath = quote_arg(path)
+    recursive_flag = " -R" if recursive else ""
+    cmd = f"chcat{recursive_flag} +{cat_str} {qpath}"
+
+    current = await ssh.execute(f"ls -dZ {qpath} 2>/dev/null")
     current_context = ""
     if current.success and current.stdout.strip():
         current_context = current.stdout.strip().split()[0]
@@ -46,7 +61,7 @@ async def mls_assign_category(
         preview["error"] = result.stderr.strip()
         return preview
 
-    verify = await ssh.execute(f"ls -dZ {path} 2>/dev/null")
+    verify = await ssh.execute(f"ls -dZ {qpath} 2>/dev/null")
     new_context = ""
     if verify.success and verify.stdout.strip():
         new_context = verify.stdout.strip().split()[0]
@@ -63,6 +78,13 @@ async def mls_set_user_range(
     dry_run: bool = True,
 ) -> dict:
     """Modify a user's MLS range mapping."""
+    try:
+        login = sanitize_login(login)
+        if range_spec != "s0-s0:c0.c1023":
+            range_spec = sanitize_mls_range(range_spec)
+    except SanitizationError as e:
+        return e.to_dict()
+
     if login == "root" and range_spec != "s0-s0:c0.c1023":
         return {
             "action": "mls_set_user_range",
@@ -74,11 +96,11 @@ async def mls_set_user_range(
             ),
         }
 
-    cmd = f"semanage login -m -r '{range_spec}' {login}"
+    qlogin = quote_arg(login)
+    qrange = quote_arg(range_spec)
+    cmd = f"semanage login -m -r {qrange} {qlogin}"
 
-    current = await ssh.execute(
-        f"semanage login -l 2>/dev/null | grep '^{login}'"
-    )
+    current = await ssh.execute(f"semanage login -l 2>/dev/null | grep {qlogin}")
     current_range = ""
     if current.success and current.stdout.strip():
         parts = current.stdout.strip().split()
@@ -111,9 +133,7 @@ async def mls_set_user_range(
         preview["error"] = result.stderr.strip()
         return preview
 
-    verify = await ssh.execute(
-        f"semanage login -l 2>/dev/null | grep '^{login}'"
-    )
+    verify = await ssh.execute(f"semanage login -l 2>/dev/null | grep {qlogin}")
     verified_range = ""
     if verify.success and verify.stdout.strip():
         parts = verify.stdout.strip().split()

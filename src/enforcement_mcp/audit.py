@@ -43,11 +43,9 @@ async def write_audit_entry(
     )
 
     line = json.dumps(entry.model_dump())
-    escaped = line.replace("'", "'\\''")
-    cmd = (
-        f"mkdir -p /var/lib/enforcement-mcp && "
-        f"echo '{escaped}' >> {AUDIT_PATH}"
-    )
+    import shlex
+
+    cmd = f"mkdir -p /var/lib/enforcement-mcp && printf '%s\\n' {shlex.quote(line)} >> {AUDIT_PATH}"
     try:
         result = await ssh.execute(cmd, timeout=5)
         if not result.success:

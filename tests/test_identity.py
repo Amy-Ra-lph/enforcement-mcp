@@ -182,10 +182,11 @@ class TestRolesFromSpiffePath:
 
 
 class TestAnonymousIdentity:
-    def test_anonymous_has_admin(self):
+    def test_anonymous_has_viewer(self):
         identity = anonymous_identity()
         assert not identity.verified
-        assert Role.ADMIN in identity.roles
+        assert Role.VIEWER in identity.roles
+        assert Role.ADMIN not in identity.roles
         assert identity.subject == "anonymous"
 
 

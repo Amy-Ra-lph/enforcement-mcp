@@ -52,9 +52,7 @@ class TestAssessRisk:
     async def test_module_assessment(self, mock_ssh):
         mock_ssh.execute = AsyncMock(return_value=make_result("Enforcing"))
         cil = "(allow httpd_t tmp_t (file (read write)))"
-        result = await assess_risk(
-            mock_ssh, change_type="module", name="test_mod", cil=cil
-        )
+        result = await assess_risk(mock_ssh, change_type="module", name="test_mod", cil=cil)
         assert "risk_score" in result
         assert "risk_level" in result
 
@@ -70,9 +68,7 @@ class TestAssessRisk:
     @pytest.mark.asyncio
     async def test_fapolicyd_trust_tmp_high_risk(self, mock_ssh):
         mock_ssh.execute = AsyncMock(return_value=make_result("Enforcing"))
-        result = await assess_risk(
-            mock_ssh, change_type="fapolicyd_trust", path="/tmp/malware"
-        )
+        result = await assess_risk(mock_ssh, change_type="fapolicyd_trust", path="/tmp/malware")
         assert result["risk_score"] >= 25
 
     @pytest.mark.asyncio

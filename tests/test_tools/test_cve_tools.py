@@ -78,9 +78,7 @@ class TestCveExposure:
             if "getenforce" in cmd:
                 return make_result("Enforcing")
             if "sesearch" in cmd:
-                return make_result(
-                    "allow httpd_t httpd_sys_content_t : file { read getattr } ;"
-                )
+                return make_result("allow httpd_t httpd_sys_content_t : file { read getattr } ;")
             return make_result("")
 
         mock_ssh.execute = mock_execute
@@ -111,14 +109,16 @@ class TestActiveContainments:
 
     @pytest.mark.asyncio
     async def test_valid_containments(self, mock_ssh):
-        state = json.dumps([
-            {
-                "cve_id": "CVE-2024-6387",
-                "module_name": "emcp_cve_2024_6387_minimal",
-                "date_applied": "2024-07-01T12:00:00Z",
-                "strategy": "minimal",
-            },
-        ])
+        state = json.dumps(
+            [
+                {
+                    "cve_id": "CVE-2024-6387",
+                    "module_name": "emcp_cve_2024_6387_minimal",
+                    "date_applied": "2024-07-01T12:00:00Z",
+                    "strategy": "minimal",
+                },
+            ]
+        )
 
         call_idx = 0
 

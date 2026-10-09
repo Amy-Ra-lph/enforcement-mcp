@@ -9,6 +9,14 @@ from enforcement_mcp.parsers import (
     parse_sesearch_allow,
     parse_time_spec,
 )
+from enforcement_mcp.sanitize import (
+    SanitizationError,
+    quote_arg,
+    sanitize_path,
+    sanitize_selinux_class,
+    sanitize_selinux_permission,
+    sanitize_selinux_type,
+)
 from enforcement_mcp.ssh import SSHBackend
 
 SELINUX_DISABLED_ERROR = {
@@ -29,6 +37,12 @@ async def avc_denials(
     source_type: str | None = None,
 ) -> dict:
     """Get recent AVC denials, parsed to structured JSON."""
+    if source_type:
+        try:
+            source_type = sanitize_selinux_type(source_type, "source_type")
+        except SanitizationError as e:
+            return e.to_dict()
+
     mode = await check_selinux_enabled(ssh)
     if mode == "disabled":
         return SELINUX_DISABLED_ERROR
@@ -36,7 +50,7 @@ async def avc_denials(
     ts = parse_time_spec(since)
     cmd = f"ausearch -m AVC -ts {ts} 2>/dev/null"
     if source_type:
-        cmd += f" | grep 'scontext=.*:{source_type}:'"
+        cmd += f" | grep {quote_arg(f'scontext=.*:{source_type}:')}"
 
     result = await ssh.execute(cmd)
     parsed = parse_avc_denials(result.stdout)
@@ -52,15 +66,30 @@ async def policy_query(
     permission: str | None = None,
 ) -> dict:
     """Query allow rules for a source type."""
+    try:
+        source_type = sanitize_selinux_type(source_type, "source_type")
+    except SanitizationError as e:
+        return e.to_dict()
+    if tclass:
+        try:
+            tclass = sanitize_selinux_class(tclass, "tclass")
+        except SanitizationError as e:
+            return e.to_dict()
+    if permission:
+        try:
+            permission = sanitize_selinux_permission(permission, "permission")
+        except SanitizationError as e:
+            return e.to_dict()
+
     mode = await check_selinux_enabled(ssh)
     if mode == "disabled":
         return SELINUX_DISABLED_ERROR
 
-    cmd = f"sesearch --allow -s {source_type}"
+    cmd = f"sesearch --allow -s {quote_arg(source_type)}"
     if tclass:
-        cmd += f" -c {tclass}"
+        cmd += f" -c {quote_arg(tclass)}"
     if permission:
-        cmd += f" -p {permission}"
+        cmd += f" -p {quote_arg(permission)}"
     cmd += " 2>/dev/null"
 
     result = await ssh.execute(cmd)
@@ -91,14 +120,19 @@ async def boolean_list(
 
 async def file_context(ssh: SSHBackend, path: str) -> dict:
     """Check expected vs actual SELinux file context."""
+    try:
+        path = sanitize_path(path)
+    except SanitizationError as e:
+        return e.to_dict()
+
     mode = await check_selinux_enabled(ssh)
     if mode == "disabled":
         return SELINUX_DISABLED_ERROR
 
-    expected_result = await ssh.execute(f"matchpathcon {path}")
+    expected_result = await ssh.execute(f"matchpathcon {quote_arg(path)}")
     expected = parse_matchpathcon(expected_result.stdout)
 
-    actual_result = await ssh.execute(f"ls -dZ {path} 2>/dev/null")
+    actual_result = await ssh.execute(f"ls -dZ {quote_arg(path)} 2>/dev/null")
     actual_parts = actual_result.stdout.strip().split()
     actual_context = actual_parts[0] if actual_parts else None
     actual_type = actual_context.split(":")[2] if actual_context and ":" in actual_context else None
@@ -126,17 +160,28 @@ async def denial_explain(
     permission: str,
 ) -> dict:
     """Explain why a denial happened — boolean, policy gap, or constraint."""
+    try:
+        source = sanitize_selinux_type(source, "source")
+        target = sanitize_selinux_type(target, "target")
+        tclass = sanitize_selinux_class(tclass, "tclass")
+        permission = sanitize_selinux_permission(permission, "permission")
+    except SanitizationError as e:
+        return e.to_dict()
+
     mode = await check_selinux_enabled(ssh)
     if mode == "disabled":
         return SELINUX_DISABLED_ERROR
 
-    cmd = f"sesearch --allow -s {source} -t {target} -c {tclass} -p {permission} -b 2>/dev/null"
+    cmd = (
+        f"sesearch --allow -s {quote_arg(source)} -t {quote_arg(target)} "
+        f"-c {quote_arg(tclass)} -p {quote_arg(permission)} -b 2>/dev/null"
+    )
     result = await ssh.execute(cmd)
     parsed = parse_sesearch_allow(result.stdout)
 
     if parsed and parsed[0].get("conditional"):
         boolean_name = parsed[0]["conditional"]
-        bool_result = await ssh.execute(f"getsebool {boolean_name}")
+        bool_result = await ssh.execute(f"getsebool {quote_arg(boolean_name)}")
         bool_state = "unknown"
         if "-->" in bool_result.stdout:
             bool_state = bool_result.stdout.split("-->")[1].strip()
@@ -152,7 +197,10 @@ async def denial_explain(
             ),
         }
 
-    cmd2 = f"sesearch --allow -s {source} -t {target} -c {tclass} -p {permission} 2>/dev/null"
+    cmd2 = (
+        f"sesearch --allow -s {quote_arg(source)} -t {quote_arg(target)} "
+        f"-c {quote_arg(tclass)} -p {quote_arg(permission)} 2>/dev/null"
+    )
     result2 = await ssh.execute(cmd2)
     if not result2.stdout.strip():
         return {
@@ -170,7 +218,6 @@ async def denial_explain(
     return {
         "cause": "unknown",
         "explanation": (
-            "Rule exists but denial still occurred. "
-            "May be a constraint or type mismatch."
+            "Rule exists but denial still occurred. May be a constraint or type mismatch."
         ),
     }

@@ -92,12 +92,14 @@ def score_boolean_change(
         score += target_penalty
         factors.append({"factor": "target_sensitivity", "penalty": target_penalty})
 
-    factors.append({
-        "factor": "reversibility",
-        "value": "easy",
-        "penalty": 0,
-        "note": f"setsebool -P {name} {'off' if new_value else 'on'}",
-    })
+    factors.append(
+        {
+            "factor": "reversibility",
+            "value": "easy",
+            "penalty": 0,
+            "note": f"setsebool -P {name} {'off' if new_value else 'on'}",
+        }
+    )
 
     score = min(100, score)
     level = _score_to_level(score)
@@ -110,9 +112,7 @@ def score_boolean_change(
             "domains_affected": domains_affected,
         },
         "attack_surface_delta": {
-            "permissions_granted": [
-                p for r in rules_unlocked for p in r.get("permissions", [])
-            ],
+            "permissions_granted": [p for r in rules_unlocked for p in r.get("permissions", [])],
         },
         "reversibility": {
             "method": f"setsebool -P {name} {'off' if new_value else 'on'}",
@@ -159,20 +159,24 @@ def score_module_change(
         score += target_penalty
         factors.append({"factor": "target_sensitivity", "penalty": target_penalty})
 
-    factors.append({
-        "factor": "reversibility",
-        "value": "easy",
-        "penalty": 0,
-        "note": f"semodule -r {name}",
-    })
+    factors.append(
+        {
+            "factor": "reversibility",
+            "value": "easy",
+            "penalty": 0,
+            "note": f"semodule -r {name}",
+        }
+    )
 
     if is_containment:
         score = max(0, score - 10)
-        factors.append({
-            "factor": "containment_discount",
-            "penalty": -10,
-            "note": "Containment modules reduce attack surface",
-        })
+        factors.append(
+            {
+                "factor": "containment_discount",
+                "penalty": -10,
+                "note": "Containment modules reduce attack surface",
+            }
+        )
 
     score = min(100, score)
     level = _score_to_level(score)
@@ -182,9 +186,7 @@ def score_module_change(
         "risk_level": level,
         "blast_radius": {"rules_in_module": blast},
         "attack_surface_delta": {
-            "permissions_granted": [
-                p for r in cil_rules for p in r.get("permissions", [])
-            ],
+            "permissions_granted": [p for r in cil_rules for p in r.get("permissions", [])],
         },
         "reversibility": {
             "method": f"semodule -r {name}",
@@ -212,12 +214,14 @@ def score_fapolicyd_trust(path: str, is_setuid: bool = False) -> dict:
         score += 20
         factors.append({"factor": "setuid", "penalty": 20})
 
-    factors.append({
-        "factor": "reversibility",
-        "value": "easy",
-        "penalty": 0,
-        "note": f"fapolicyd-cli --file delete {path} && fapolicyd-cli --update",
-    })
+    factors.append(
+        {
+            "factor": "reversibility",
+            "value": "easy",
+            "penalty": 0,
+            "note": f"fapolicyd-cli --file delete {path} && fapolicyd-cli --update",
+        }
+    )
 
     score = min(100, score)
     level = _score_to_level(score)

@@ -62,9 +62,7 @@ class TestFapolicydTrustAdd:
             return make_result("")
 
         mock_ssh.execute = mock_execute
-        result = await fapolicyd_trust_add(
-            mock_ssh, path="/opt/bin/app", dry_run=True
-        )
+        result = await fapolicyd_trust_add(mock_ssh, path="/opt/bin/app", dry_run=True)
         assert result["is_setuid"] is True
         assert result["risk_assessment"]["risk_score"] > 0
 
@@ -86,9 +84,7 @@ class TestFapolicydTrustAdd:
             return make_result("")
 
         mock_ssh.execute = mock_execute
-        result = await fapolicyd_trust_add(
-            mock_ssh, path="/opt/bin/app", dry_run=False
-        )
+        result = await fapolicyd_trust_add(mock_ssh, path="/opt/bin/app", dry_run=False)
         assert result["status"] == "applied"
         assert result["verified_trusted"] is True
 
@@ -117,9 +113,7 @@ class TestFapolicydTrustRemove:
             return make_result("")
 
         mock_ssh.execute = mock_execute
-        result = await fapolicyd_trust_remove(
-            mock_ssh, path="/opt/bin/app", dry_run=True
-        )
+        result = await fapolicyd_trust_remove(mock_ssh, path="/opt/bin/app", dry_run=True)
         assert result["status"] == "preview"
         assert "warning" in result
 
@@ -143,8 +137,6 @@ class TestFapolicydTrustRemove:
             return make_result("")
 
         mock_ssh.execute = mock_execute
-        result = await fapolicyd_trust_remove(
-            mock_ssh, path="/opt/bin/app", dry_run=False
-        )
+        result = await fapolicyd_trust_remove(mock_ssh, path="/opt/bin/app", dry_run=False)
         assert result["status"] == "removed"
         assert result["verified_removed"] is True

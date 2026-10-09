@@ -6,6 +6,7 @@ import re
 from enforcement_mcp.cve_api import fetch_cve, parse_cve_response
 from enforcement_mcp.exploit_map import build_exploit_chain, map_cve_to_techniques
 from enforcement_mcp.parsers import parse_getenforce, parse_sesearch_allow
+from enforcement_mcp.sanitize import quote_arg
 from enforcement_mcp.ssh import SSHBackend
 
 CONTAINMENT_STATE_PATH = "/var/lib/enforcement-mcp/containments.json"
@@ -41,8 +42,8 @@ async def cve_exposure(ssh: SSHBackend, cve_id: str) -> dict:
         blocking_rule = None
         for perm in step["required_permissions"]:
             cmd = (
-                f"sesearch --allow -s {perm['source']} -t {perm['target']} "
-                f"-c {perm['class']} -p {perm['perm']} 2>/dev/null"
+                f"sesearch --allow -s {quote_arg(perm['source'])} -t {quote_arg(perm['target'])} "
+                f"-c {quote_arg(perm['class'])} -p {quote_arg(perm['perm'])} 2>/dev/null"
             )
             result = await ssh.execute(cmd)
             rules = parse_sesearch_allow(result.stdout)
@@ -51,8 +52,7 @@ async def cve_exposure(ssh: SSHBackend, cve_id: str) -> dict:
                 break
             else:
                 blocking_rule = (
-                    f"No allow: {perm['source']} -> "
-                    f"{perm['target']}:{perm['class']}:{perm['perm']}"
+                    f"No allow: {perm['source']} -> {perm['target']}:{perm['class']}:{perm['perm']}"
                 )
 
         step["blocked"] = step_blocked
@@ -100,13 +100,13 @@ async def active_containments(ssh: SSHBackend) -> dict:
     for c in containments:
         cve_id = c.get("cve_id", "")
         module_name = c.get("module_name", "")
-        loaded = await ssh.execute(f"semodule -l 2>/dev/null | grep '^{module_name}'")
+        loaded = await ssh.execute(f"semodule -l 2>/dev/null | grep -F {quote_arg(module_name)}")
         c["module_loaded"] = bool(loaded.stdout.strip())
 
         if cve_id and c.get("fixed_in"):
             for pkg in c["fixed_in"][:3]:
                 pkg_name = pkg.split("-")[0] if "-" in pkg else pkg
-                rpm_check = await ssh.execute(f"rpm -q {pkg_name} 2>/dev/null")
+                rpm_check = await ssh.execute(f"rpm -q {quote_arg(pkg_name)} 2>/dev/null")
                 if rpm_check.success:
                     c["patched_rpm_available"] = True
                     c["safe_to_remove"] = True

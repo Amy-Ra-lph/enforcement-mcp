@@ -7,6 +7,7 @@ from enforcement_mcp.cve_api import fetch_cve, parse_cve_response
 from enforcement_mcp.exploit_map import build_exploit_chain, map_cve_to_techniques
 from enforcement_mcp.parsers import parse_getenforce, parse_sesearch_allow
 from enforcement_mcp.risk import score_module_change
+from enforcement_mcp.sanitize import quote_arg
 from enforcement_mcp.ssh import SSHBackend
 from enforcement_mcp.tools.cve import CONTAINMENT_STATE_PATH, _infer_source_type
 
@@ -47,21 +48,23 @@ async def cve_contain(
     for step in chain:
         for perm in step["required_permissions"]:
             cmd = (
-                f"sesearch --allow -s {perm['source']} -t {perm['target']} "
-                f"-c {perm['class']} -p {perm['perm']} 2>/dev/null"
+                f"sesearch --allow -s {quote_arg(perm['source'])} -t {quote_arg(perm['target'])} "
+                f"-c {quote_arg(perm['class'])} -p {quote_arg(perm['perm'])} 2>/dev/null"
             )
             result = await ssh.execute(cmd)
             rules = parse_sesearch_allow(result.stdout)
             if rules:
-                gaps.append({
-                    "step": step["step"],
-                    "technique": step["technique"],
-                    "source": perm["source"],
-                    "target": perm["target"],
-                    "tclass": perm["class"],
-                    "permission": perm["perm"],
-                    "existing_rules": len(rules),
-                })
+                gaps.append(
+                    {
+                        "step": step["step"],
+                        "technique": step["technique"],
+                        "source": perm["source"],
+                        "target": perm["target"],
+                        "tclass": perm["class"],
+                        "permission": perm["perm"],
+                        "existing_rules": len(rules),
+                    }
+                )
 
     if not gaps:
         return {
@@ -81,7 +84,7 @@ async def cve_contain(
         )
         opt["risk_assessment"] = risk
 
-    options.sort(key=lambda o: (o.get("risk_assessment", {}).get("risk_score", 100)))
+    options.sort(key=lambda o: o.get("risk_assessment", {}).get("risk_score", 100))
 
     return {
         "cve": cve.model_dump(),
@@ -123,7 +126,7 @@ async def containment_expire(ssh: SSHBackend, cve_id: str) -> dict:
         return {"error": "not_found", "message": f"No containment found for {cve_id}"}
 
     module_name = target.get("module_name", "")
-    loaded = await ssh.execute(f"semodule -l 2>/dev/null | grep '^{module_name}'")
+    loaded = await ssh.execute(f"semodule -l 2>/dev/null | grep -F {quote_arg(module_name)}")
     if not loaded.stdout.strip():
         return {
             "cve_id": cve_id,
@@ -135,7 +138,7 @@ async def containment_expire(ssh: SSHBackend, cve_id: str) -> dict:
     patched = False
     for pkg in target.get("fixed_in", [])[:3]:
         pkg_name = pkg.split("-")[0] if "-" in pkg else pkg
-        rpm_check = await ssh.execute(f"rpm -q {pkg_name} 2>/dev/null")
+        rpm_check = await ssh.execute(f"rpm -q {quote_arg(pkg_name)} 2>/dev/null")
         if rpm_check.success:
             patched = True
             break
@@ -170,23 +173,24 @@ def _generate_containment_options(
         deny_rules = []
         for gap in gaps:
             deny_rules.append(
-                f"(deny {gap['source']} {gap['target']} "
-                f"({gap['tclass']} ({gap['permission']})))"
+                f"(deny {gap['source']} {gap['target']} ({gap['tclass']} ({gap['permission']})))"
             )
 
         module_name = f"emcp_{safe_cve}_minimal"
         cil = "\n".join([f"(block {module_name}", *[f"  {r}" for r in deny_rules], ")"])
-        options.append({
-            "strategy": "minimal",
-            "description": (
-                f"Block only the specific permissions needed "
-                f"for the exploit chain ({len(gaps)} rules)"
-            ),
-            "module_name": module_name,
-            "cil_content": cil,
-            "effectiveness": min(100, len(gaps) * 20),
-            "operational_impact": "low — only exploit-specific permissions blocked",
-        })
+        options.append(
+            {
+                "strategy": "minimal",
+                "description": (
+                    f"Block only the specific permissions needed "
+                    f"for the exploit chain ({len(gaps)} rules)"
+                ),
+                "module_name": module_name,
+                "cil_content": cil,
+                "effectiveness": min(100, len(gaps) * 20),
+                "operational_impact": "low — only exploit-specific permissions blocked",
+            }
+        )
 
     if strategy in ("network_isolation", "all"):
         net_gaps = [g for g in gaps if g["tclass"] in ("tcp_socket", "udp_socket")]
@@ -199,48 +203,51 @@ def _generate_containment_options(
                 )
             module_name = f"emcp_{safe_cve}_netiso"
             cil = "\n".join([f"(block {module_name}", *[f"  {r}" for r in deny_rules], ")"])
-            options.append({
-                "strategy": "network_isolation",
-                "description": "Block network access used in the exploit chain",
-                "module_name": module_name,
-                "cil_content": cil,
-                "effectiveness": min(100, len(net_gaps) * 30),
-                "operational_impact": "medium — network operations may be affected",
-            })
+            options.append(
+                {
+                    "strategy": "network_isolation",
+                    "description": "Block network access used in the exploit chain",
+                    "module_name": module_name,
+                    "cil_content": cil,
+                    "effectiveness": min(100, len(net_gaps) * 30),
+                    "operational_impact": "medium — network operations may be affected",
+                }
+            )
 
     if strategy in ("full_lockdown", "all"):
         deny_rules = []
         for gap in gaps:
             deny_rules.append(
-                f"(deny {gap['source']} {gap['target']} "
-                f"({gap['tclass']} ({gap['permission']})))"
+                f"(deny {gap['source']} {gap['target']} ({gap['tclass']} ({gap['permission']})))"
             )
-        deny_rules.append(
-            f"(deny {source_type} self (process (execmem execstack)))"
-        )
+        deny_rules.append(f"(deny {source_type} self (process (execmem execstack)))")
 
         module_name = f"emcp_{safe_cve}_lockdown"
         cil = "\n".join([f"(block {module_name}", *[f"  {r}" for r in deny_rules], ")"])
-        options.append({
-            "strategy": "full_lockdown",
-            "description": "Block all exploit chain permissions plus memory execution",
-            "module_name": module_name,
-            "cil_content": cil,
-            "effectiveness": min(100, (len(gaps) + 1) * 25),
-            "operational_impact": "high — may affect normal service operation",
-        })
+        options.append(
+            {
+                "strategy": "full_lockdown",
+                "description": "Block all exploit chain permissions plus memory execution",
+                "module_name": module_name,
+                "cil_content": cil,
+                "effectiveness": min(100, (len(gaps) + 1) * 25),
+                "operational_impact": "high — may affect normal service operation",
+            }
+        )
 
     if not options:
         module_name = f"emcp_{safe_cve}_minimal"
         cil = f"(block {module_name}\n  ; No specific deny rules generated\n)"
-        options.append({
-            "strategy": "minimal",
-            "description": "No specific containment rules identified",
-            "module_name": module_name,
-            "cil_content": cil,
-            "effectiveness": 0,
-            "operational_impact": "none",
-        })
+        options.append(
+            {
+                "strategy": "minimal",
+                "description": "No specific containment rules identified",
+                "module_name": module_name,
+                "cil_content": cil,
+                "effectiveness": 0,
+                "operational_impact": "none",
+            }
+        )
 
     return options
 
@@ -253,9 +260,11 @@ def _cil_to_rule_dicts(cil: str) -> list[dict]:
         if line.startswith("(deny ") or line.startswith("(allow "):
             parts = line.strip("()").split()
             if len(parts) >= 4:
-                rules.append({
-                    "source": parts[1],
-                    "target": parts[2],
-                    "permissions": [],
-                })
+                rules.append(
+                    {
+                        "source": parts[1],
+                        "target": parts[2],
+                        "permissions": [],
+                    }
+                )
     return rules

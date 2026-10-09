@@ -120,12 +120,12 @@ async def verify_jwt(
         except Exception as e:
             raise InvalidTokenError(f"Unsupported key type in JWK: {e}") from e
 
-    alg = header.get("alg", "RS256")
+    ALLOWED_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
     try:
         claims = pyjwt.decode(
             token,
             key,
-            algorithms=[alg],
+            algorithms=ALLOWED_ALGORITHMS,
             issuer=issuer,
             audience=audience,
             options={"verify_exp": True},
@@ -150,9 +150,7 @@ def _extract_roles(claims: dict) -> list[Role]:
     role_claim = claims.get("roles", [])
     if isinstance(role_claim, str):
         role_claim = [role_claim]
-    realm_roles = (
-        claims.get("realm_access", {}).get("roles", [])
-    )
+    realm_roles = claims.get("realm_access", {}).get("roles", [])
     all_roles = set(role_claim) | set(realm_roles)
     for r in all_roles:
         r_lower = r.lower().strip()
@@ -210,7 +208,7 @@ def anonymous_identity() -> CallerIdentity:
     return CallerIdentity(
         subject="anonymous",
         issuer="local",
-        roles=[Role.ADMIN],
+        roles=[Role.VIEWER],
         verified=False,
     )
 

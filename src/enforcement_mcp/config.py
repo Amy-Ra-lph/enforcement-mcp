@@ -45,9 +45,7 @@ def get_identity_config() -> IdentityConfig:
     """Read identity configuration from environment variables."""
     return IdentityConfig(
         mode=IdentityMode(os.environ.get("ENFORCEMENT_MCP_IDENTITY_MODE", "none")),
-        authz_policy=AuthzPolicy(
-            os.environ.get("ENFORCEMENT_MCP_AUTHZ_POLICY", "permissive")
-        ),
+        authz_policy=AuthzPolicy(os.environ.get("ENFORCEMENT_MCP_AUTHZ_POLICY", "permissive")),
         oauth_issuer=os.environ.get("ENFORCEMENT_MCP_OAUTH_ISSUER", ""),
         oauth_audience=os.environ.get("ENFORCEMENT_MCP_OAUTH_AUDIENCE", ""),
         oauth_jwks_uri=os.environ.get("ENFORCEMENT_MCP_OAUTH_JWKS_URI", ""),
