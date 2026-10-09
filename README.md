@@ -6,6 +6,8 @@ Diagnose why applications are blocked by security policy. Assess risk before
 changes. Contain CVEs with targeted, reversible policy. Structured JSON output
 for every operation — no more guessing what `audit2allow` means.
 
+**New here?** See the [Getting Started guide](docs/QUICKSTART.md) for a hands-on walkthrough.
+
 ## Quick Start
 
 ```bash
