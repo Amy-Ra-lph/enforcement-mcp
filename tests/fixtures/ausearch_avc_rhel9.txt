@@ -1,0 +1,9 @@
+----
+time->Wed Oct  8 14:32:01 2026
+type=AVC msg=audit(1760012521.123:456): avc:  denied  { read } for  pid=4821 comm="httpd" name="index.html" dev="dm-0" ino=123456 scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file permissive=0
+----
+time->Wed Oct  8 14:35:22 2026
+type=AVC msg=audit(1760012722.456:789): avc:  denied  { name_connect } for  pid=4821 comm="httpd" dest=22 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:ssh_port_t:s0 tclass=tcp_socket permissive=0
+----
+time->Wed Oct  8 15:01:45 2026
+type=AVC msg=audit(1760014305.789:1012): avc:  denied  { getattr write } for  pid=9102 comm="nginx" path="/var/log/nginx/access.log" dev="dm-0" ino=654321 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:var_log_t:s0 tclass=file permissive=0

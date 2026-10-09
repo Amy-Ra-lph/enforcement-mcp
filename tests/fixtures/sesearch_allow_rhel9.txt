@@ -1,0 +1,30 @@
+allow corenet_unlabeled_type unlabeled_t:association { recvfrom sendto };
+allow corenet_unlabeled_type unlabeled_t:dccp_socket recvfrom;
+allow corenet_unlabeled_type unlabeled_t:peer recv;
+allow corenet_unlabeled_type unlabeled_t:rawip_socket recvfrom;
+allow corenet_unlabeled_type unlabeled_t:tcp_socket recvfrom;
+allow corenet_unlabeled_type unlabeled_t:udp_socket recvfrom;
+allow daemon abrt_t:unix_stream_socket connectto;
+allow daemon abrt_var_run_t:sock_file { append getattr open write };
+allow daemon auth_port_t:tcp_socket name_connect; [ daemons_use_tcp_wrapper ]:True
+allow daemon cluster_conf_t:dir { add_name create getattr ioctl link lock open read remove_name rename reparent rmdir search setattr unlink watch watch_reads write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_conf_t:dir { add_name getattr ioctl lock open read remove_name search write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_conf_t:dir { add_name getattr ioctl lock open read remove_name search write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_conf_t:dir { getattr open search }; [ daemons_enable_cluster_mode ]:False
+allow daemon cluster_conf_t:file { append create getattr ioctl link lock open read rename setattr unlink watch watch_reads write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_conf_t:file { getattr ioctl lock open read }; [ daemons_enable_cluster_mode ]:False
+allow daemon cluster_pid:dir { getattr open search }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_pid:sock_file { append getattr open write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_tmp_t:file write; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_var_lib_t:dir { add_name getattr ioctl lock open read remove_name search write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_var_lib_t:dir { getattr open search }; [ daemons_enable_cluster_mode ]:False
+allow daemon cluster_var_lib_t:file { append create getattr ioctl link lock open read rename setattr unlink watch watch_reads write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_var_lib_t:file { getattr ioctl lock open read }; [ daemons_enable_cluster_mode ]:False
+allow daemon cluster_var_run_t:dir { add_name ioctl lock read remove_name write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_var_run_t:dir { getattr open search }; [ daemons_enable_cluster_mode ]:False
+allow daemon cluster_var_run_t:file { append create getattr ioctl link lock open read rename setattr unlink watch watch_reads write }; [ daemons_enable_cluster_mode ]:True
+allow daemon cluster_var_run_t:file { getattr ioctl lock open read }; [ daemons_enable_cluster_mode ]:False
+allow daemon daemon:unix_stream_socket connectto; [ daemons_enable_cluster_mode ]:True
+allow daemon devpts_t:chr_file { append getattr ioctl lock open read write }; [ daemons_use_tty ]:True
+allow daemon devpts_t:dir { getattr ioctl lock open read search };
+allow daemon fail2ban_var_lib_t:dir { getattr open search };
