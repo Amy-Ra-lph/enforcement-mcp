@@ -1,20 +1,20 @@
-FROM registry.access.redhat.com/hi/python:latest
+FROM registry.access.redhat.com/ubi9/python-312:latest
 
 LABEL name="enforcement-mcp" \
       summary="SELinux/fapolicyd/MLS policy intelligence MCP server" \
       description="Diagnosis and management of host security enforcement policy via MCP" \
-      version="0.1.0"
+      version="0.4.0"
 
-WORKDIR /app
+WORKDIR /opt/app-root/src
 
-RUN microdnf install -y openssh-clients && microdnf clean all
+USER 0
+RUN dnf install -y openssh-clients && dnf clean all
+USER 1001
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
 
 RUN pip install --no-cache-dir .
-
-USER 1001
 
 ENTRYPOINT ["enforcement-mcp"]
 CMD ["--transport", "stdio"]
