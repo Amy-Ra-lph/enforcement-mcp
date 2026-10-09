@@ -20,13 +20,22 @@ from .tools import (
     fapolicyd_denials,
     fapolicyd_rules,
     fapolicyd_status,
+    fapolicyd_trust_add,
     fapolicyd_trust_check,
+    fapolicyd_trust_remove,
     file_context,
+    generate_module,
     host_posture,
+    load_module,
+    mls_assign_category,
     mls_categories,
     mls_file_level,
+    mls_set_user_range,
     mls_user_mappings,
     policy_query,
+    remove_module,
+    set_boolean,
+    set_file_context,
     troubleshoot,
 )
 
@@ -34,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
     name="enforcement-mcp",
-    version="0.2.0",
+    version="0.3.0",
     instructions=(
         "SELinux, fapolicyd, and MLS policy intelligence for RHEL systems. "
         "Use diagnosis.troubleshoot as the primary entry point when something is blocked. "
@@ -255,3 +264,105 @@ async def tool_containment_expire(
     """Check if a CVE containment module can be safely removed (patch applied). Returns removal command if safe."""
     ssh = await _get_ssh()
     return await containment_expire(ssh, cve_id=cve)
+
+
+# --- Phase 3: Management Tier (mutating, risk-gated) ---
+
+
+@mcp.tool(name="manage.set_boolean")
+async def tool_set_boolean(
+    name: Annotated[str, Field(description="SELinux boolean name, e.g. 'httpd_enable_homedirs'")],
+    value: Annotated[bool, Field(description="New value: true to enable, false to disable")],
+    persistent: Annotated[bool, Field(description="Persist across reboots (-P flag)")] = True,
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Toggle an SELinux boolean. Returns risk assessment and preview. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await set_boolean(ssh, name=name, value=value, persistent=persistent, dry_run=dry_run)
+
+
+@mcp.tool(name="manage.generate_module")
+async def tool_generate_module(
+    name: Annotated[str, Field(description="Module name, e.g. 'httpd_homedir_fix'")],
+    from_denials: Annotated[str, Field(description="Time window for denials, e.g. '1h', '24h'")] = "1h",
+    source_type: Annotated[str | None, Field(description="Filter by source type, e.g. 'httpd_t'")] = None,
+) -> dict:
+    """Generate a CIL module from recent AVC denials. Compares to boolean alternatives. Does NOT auto-load."""
+    ssh = await _get_ssh()
+    return await generate_module(ssh, name=name, from_denials=from_denials, source_type=source_type)
+
+
+@mcp.tool(name="manage.load_module")
+async def tool_load_module(
+    name: Annotated[str, Field(description="Module name")],
+    cil: Annotated[str, Field(description="CIL policy content to load")],
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Load a CIL policy module into the running SELinux policy. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await load_module(ssh, name=name, cil=cil, dry_run=dry_run)
+
+
+@mcp.tool(name="manage.remove_module")
+async def tool_remove_module(
+    name: Annotated[str, Field(description="Module name to remove")],
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Remove a loaded SELinux policy module. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await remove_module(ssh, name=name, dry_run=dry_run)
+
+
+@mcp.tool(name="manage.set_file_context")
+async def tool_set_file_context(
+    path: Annotated[str, Field(description="Path pattern, e.g. '/home/jsmith/public_html(/.*)?'")],
+    context_type: Annotated[str, Field(description="Target SELinux type, e.g. 'httpd_sys_content_t'")],
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Add a persistent file context rule and relabel. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await set_file_context(ssh, path=path, context_type=context_type, dry_run=dry_run)
+
+
+@mcp.tool(name="manage.fapolicyd_trust_add")
+async def tool_fapolicyd_trust_add(
+    path: Annotated[str, Field(description="Full path to binary, e.g. '/opt/myapp/bin/worker'")],
+    reason: Annotated[str, Field(description="Why this binary should be trusted")] = "",
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Add a binary to fapolicyd ancillary trust. Checks setuid, location risk. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await fapolicyd_trust_add(ssh, path=path, reason=reason, dry_run=dry_run)
+
+
+@mcp.tool(name="manage.fapolicyd_trust_remove")
+async def tool_fapolicyd_trust_remove(
+    path: Annotated[str, Field(description="Full path to binary to remove from trust")],
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Remove a binary from fapolicyd trust. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await fapolicyd_trust_remove(ssh, path=path, dry_run=dry_run)
+
+
+@mcp.tool(name="manage.mls_assign_category")
+async def tool_mls_assign_category(
+    path: Annotated[str, Field(description="File or directory path")],
+    categories: Annotated[list[str], Field(description="MLS categories, e.g. ['c5', 'c10']")],
+    recursive: Annotated[bool, Field(description="Apply recursively")] = False,
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Assign MLS categories to files. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await mls_assign_category(ssh, path=path, categories=categories, recursive=recursive, dry_run=dry_run)
+
+
+@mcp.tool(name="manage.mls_set_user_range")
+async def tool_mls_set_user_range(
+    login: Annotated[str, Field(description="Login name, e.g. 'contractor'")],
+    range_spec: Annotated[str, Field(description="MLS range, e.g. 's0:c5,c10'")],
+    dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+) -> dict:
+    """Modify a user's MLS range. Hard-blocks root range restriction. Set dry_run=false to apply."""
+    ssh = await _get_ssh()
+    return await mls_set_user_range(ssh, login=login, range_spec=range_spec, dry_run=dry_run)

@@ -10,9 +10,9 @@ class TestServerSetup:
         assert mcp.name == "enforcement-mcp"
 
     @pytest.mark.asyncio
-    async def test_has_19_tools(self):
+    async def test_has_28_tools(self):
         tools = await mcp.list_tools()
-        assert len(tools) == 19
+        assert len(tools) == 28
 
     @pytest.mark.asyncio
     async def test_diagnosis_tools_registered(self):
@@ -47,6 +47,15 @@ class TestServerSetup:
             "manage.assess_risk",
             "manage.cve_contain",
             "manage.containment_expire",
+            "manage.set_boolean",
+            "manage.generate_module",
+            "manage.load_module",
+            "manage.remove_module",
+            "manage.set_file_context",
+            "manage.fapolicyd_trust_add",
+            "manage.fapolicyd_trust_remove",
+            "manage.mls_assign_category",
+            "manage.mls_set_user_range",
         ]
         for name in expected_manage:
             assert name in tool_names, f"Missing tool: {name}"
