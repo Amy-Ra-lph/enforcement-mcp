@@ -18,6 +18,7 @@ from .manage_selinux import (
     set_file_context,
 )
 from .mls import mls_categories, mls_file_level, mls_user_mappings
+from .offline import parse_denials
 from .posture import host_posture, troubleshoot
 from .risk import assess_risk
 from .selinux import (
@@ -54,6 +55,7 @@ __all__ = [
     "mls_file_level",
     "mls_set_user_range",
     "mls_user_mappings",
+    "parse_denials",
     "policy_query",
     "remove_module",
     "set_boolean",

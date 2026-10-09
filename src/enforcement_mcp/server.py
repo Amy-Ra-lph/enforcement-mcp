@@ -36,6 +36,7 @@ from .tools import (
     mls_file_level,
     mls_set_user_range,
     mls_user_mappings,
+    parse_denials,
     policy_query,
     remove_module,
     set_boolean,
@@ -54,6 +55,9 @@ mcp = FastMCP(
         "Use diagnosis.host_posture for a comprehensive security overview. "
         "Use diagnosis.cve_exposure to assess policy against a specific CVE. "
         "Use manage.assess_risk before any policy change to understand impact. "
+        "diagnosis.parse_denials, avc_denials(raw_text=), fapolicyd_denials(raw_text=), "
+        "and troubleshoot(raw_avc_text=/raw_fanotify_text=) support offline analysis "
+        "from log aggregators without SSH. "
         "All tools return structured JSON. "
         "Management tools accept an optional identity_token for RBAC enforcement. "
         "When SELinux is disabled or fapolicyd is not installed, tools return clear error objects."
@@ -162,10 +166,22 @@ async def tool_troubleshoot(
     ],
     process: Annotated[str | None, Field(description="Process name, e.g. 'httpd'")] = None,
     path: Annotated[str | None, Field(description="Filesystem path involved")] = None,
+    raw_avc_text: Annotated[
+        str | None,
+        Field(description="Raw AVC denial text for offline analysis (from log aggregator, SIEM, or audit.log)"),
+    ] = None,
+    raw_fanotify_text: Annotated[
+        str | None,
+        Field(description="Raw FANOTIFY denial text for offline analysis (from log aggregator or audit.log)"),
+    ] = None,
 ) -> dict:
-    """Diagnose why something is blocked. Checks SELinux, fapolicyd, and DAC systematically."""
-    ssh = await _get_ssh()
-    return await troubleshoot(ssh, symptom=symptom, process=process, path=path)
+    """Diagnose why something is blocked. Pass raw_avc_text/raw_fanotify_text for offline analysis from log aggregators, or omit to query a live host via SSH."""
+    offline = raw_avc_text is not None or raw_fanotify_text is not None
+    ssh = None if offline else await _get_ssh()
+    return await troubleshoot(
+        ssh, symptom=symptom, process=process, path=path,
+        raw_avc_text=raw_avc_text, raw_fanotify_text=raw_fanotify_text,
+    )
 
 
 @mcp.tool(name="diagnosis.host_posture")
@@ -183,10 +199,14 @@ async def tool_avc_denials(
     source_type: Annotated[
         str | None, Field(description="Filter by source SELinux type, e.g. 'httpd_t'")
     ] = None,
+    raw_text: Annotated[
+        str | None,
+        Field(description="Raw AVC denial text (from log aggregator, SIEM, or audit.log). If provided, parses this instead of querying via SSH."),
+    ] = None,
 ) -> dict:
-    """Get recent SELinux AVC denials, parsed into structured JSON."""
-    ssh = await _get_ssh()
-    return await avc_denials(ssh, since=since, source_type=source_type)
+    """Get SELinux AVC denials. Pass raw_text for offline analysis from log aggregators, or omit to query a live host via SSH."""
+    ssh = None if raw_text else await _get_ssh()
+    return await avc_denials(ssh, since=since, source_type=source_type, raw_text=raw_text)
 
 
 @mcp.tool(name="diagnosis.policy_query")
@@ -246,10 +266,14 @@ async def tool_fapolicyd_status() -> dict:
 @mcp.tool(name="diagnosis.fapolicyd_denials")
 async def tool_fapolicyd_denials(
     since: Annotated[str, Field(description="Time window, e.g. '1h', '24h', 'recent'")] = "24h",
+    raw_text: Annotated[
+        str | None,
+        Field(description="Raw FANOTIFY denial text (from log aggregator or audit.log). If provided, parses this instead of querying via SSH."),
+    ] = None,
 ) -> dict:
-    """Get recent fapolicyd FANOTIFY denials."""
-    ssh = await _get_ssh()
-    return await fapolicyd_denials(ssh, since=since)
+    """Get fapolicyd FANOTIFY denials. Pass raw_text for offline analysis, or omit to query a live host."""
+    ssh = None if raw_text else await _get_ssh()
+    return await fapolicyd_denials(ssh, since=since, raw_text=raw_text)
 
 
 @mcp.tool(name="diagnosis.fapolicyd_trust_check")
@@ -290,6 +314,21 @@ async def tool_mls_categories() -> dict:
     """Get defined MLS sensitivities and categories."""
     ssh = await _get_ssh()
     return await mls_categories(ssh)
+
+
+@mcp.tool(name="diagnosis.parse_denials")
+async def tool_parse_denials(
+    raw_text: Annotated[
+        str,
+        Field(description="Raw denial text — AVC denials, FANOTIFY events, or mixed. Accepts ausearch output, audit.log lines, or SIEM-exported records."),
+    ],
+    denial_type: Annotated[
+        str,
+        Field(description="Type of denials: 'avc', 'fanotify', or 'auto' (tries both)"),
+    ] = "auto",
+) -> dict:
+    """Parse raw denial text into structured JSON — no SSH needed. Use with log aggregator output (Splunk, ELK, Loki, etc.) or raw audit.log content. Returns parsed denials with summary statistics."""
+    return parse_denials(raw_text, denial_type=denial_type)
 
 
 # --- Phase 2: CVE Exposure + Risk Assessment + Containment ---

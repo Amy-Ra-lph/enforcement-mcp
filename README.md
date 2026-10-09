@@ -24,7 +24,7 @@ uv run enforcement-mcp
 podman run -i --rm \
   -e ENFORCEMENT_MCP_HOST=myhost.example.com \
   -v ~/.ssh/id_ed25519:/app/.ssh/id_ed25519:ro \
-  quay.io/enforcement-mcp/enforcement-mcp
+  quay.io/rhel-security/enforcement-mcp
 ```
 
 ### Configuration
@@ -38,7 +38,7 @@ podman run -i --rm \
 
 ## Tools
 
-28 tools across three permission tiers. All return structured JSON.
+29 tools across three permission tiers. All return structured JSON.
 
 ### Diagnosis (no root, read-only)
 
@@ -62,6 +62,17 @@ Use `diagnosis.troubleshoot` as the primary entry point when something is blocke
 | `diagnosis.mls_categories` | Defined MLS sensitivities and categories |
 | `diagnosis.cve_exposure` | Assess policy against a CVE's exploit chain (ATT&CK mapping) |
 | `diagnosis.active_containments` | List temporary CVE containment modules with patch status |
+| `diagnosis.parse_denials` | Parse raw AVC/FANOTIFY text into structured JSON — no SSH needed |
+
+### Offline / Log Aggregator Mode
+
+Several diagnosis tools accept raw text input, enabling analysis without a live SSH
+connection. Use with Splunk, ELK, Loki, or raw audit.log exports:
+
+- `diagnosis.parse_denials` — pure offline, accepts raw denial text, returns structured JSON with summary statistics
+- `diagnosis.avc_denials(raw_text=...)` — parse AVC denials from text instead of SSH
+- `diagnosis.fapolicyd_denials(raw_text=...)` — parse FANOTIFY denials from text
+- `diagnosis.troubleshoot(raw_avc_text=..., raw_fanotify_text=...)` — offline root cause analysis
 
 ### Management (mutating, risk-gated)
 
@@ -146,7 +157,7 @@ the remote host. Entries include caller identity, tool name, parameters
 # Install dev dependencies
 uv sync --extra dev
 
-# Run tests (291 tests)
+# Run tests (314 tests)
 uv run pytest tests/ -v
 
 # Lint

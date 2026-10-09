@@ -119,78 +119,135 @@ async def host_posture(ssh: SSHBackend) -> dict:
 
 
 async def troubleshoot(
-    ssh: SSHBackend,
+    ssh: SSHBackend | None,
     symptom: str,
     process: str | None = None,
     path: str | None = None,
+    raw_avc_text: str | None = None,
+    raw_fanotify_text: str | None = None,
 ) -> dict:
-    """Composite diagnostic — find root cause of a blocked operation."""
+    """Composite diagnostic — find root cause of a blocked operation.
+
+    If raw_avc_text / raw_fanotify_text provided, analyze those instead
+    of querying via SSH. Enables offline triage from log aggregator output.
+    """
     chain = []
     denials_found: list[dict] = []
     not_the_cause = []
+    offline = raw_avc_text is not None or raw_fanotify_text is not None
 
-    mode = parse_getenforce((await ssh.execute("getenforce")).stdout)
-    chain.append({"step": "SELinux mode", "finding": mode})
+    if offline:
+        chain.append({"step": "mode", "finding": "offline analysis from raw text"})
 
-    if mode != "disabled" and process:
-        try:
-            process = sanitize_process_name(process)
-        except SanitizationError as e:
-            return e.to_dict()
-        avc_result = await ssh.execute(
-            f"ausearch -m AVC -ts recent 2>/dev/null | grep {quote_arg(process)}"
-        )
-        avc_denials = parse_avc_denials(avc_result.stdout)
-        if avc_denials:
-            chain.append(
-                {
-                    "step": f"AVC denials for {process}",
-                    "finding": f"{len(avc_denials)} denial(s) found",
-                }
-            )
-            denials_found.extend(avc_denials)
-        else:
-            chain.append({"step": f"AVC denials for {process}", "finding": "none"})
-            not_the_cause.append(
-                {
+        if raw_avc_text:
+            avc_denials_parsed = parse_avc_denials(raw_avc_text)
+            if process:
+                avc_denials_parsed = [
+                    d for d in avc_denials_parsed
+                    if d.get("comm") == process or process in str(d.get("source_type", ""))
+                ]
+            if avc_denials_parsed:
+                chain.append({
+                    "step": "AVC denials (raw)",
+                    "finding": f"{len(avc_denials_parsed)} denial(s) found",
+                })
+                denials_found.extend(avc_denials_parsed)
+            else:
+                chain.append({
+                    "step": "AVC denials (raw)",
+                    "finding": "none in provided text",
+                })
+                not_the_cause.append({
                     "subsystem": "selinux",
-                    "reason": f"No AVC denials for {process}",
-                }
-            )
-    elif mode == "disabled":
-        not_the_cause.append({"subsystem": "selinux", "reason": "SELinux is disabled"})
+                    "reason": "No AVC denials in provided text",
+                })
 
-    fap_installed = (await ssh.execute("rpm -q fapolicyd 2>/dev/null")).exit_code == 0
-    if fap_installed:
-        fap_result = await ssh.execute("ausearch -m FANOTIFY -ts recent 2>/dev/null")
-        fap_denials = parse_fanotify_denials(fap_result.stdout)
-        if path:
-            fap_denials = [d for d in fap_denials if path in str(d.get("exe", ""))]
-        if fap_denials:
-            chain.append(
-                {
-                    "step": "fapolicyd denials",
-                    "finding": f"{len(fap_denials)} denial(s) found",
-                }
+        if raw_fanotify_text:
+            fap_denials_parsed = parse_fanotify_denials(raw_fanotify_text)
+            if path:
+                fap_denials_parsed = [
+                    d for d in fap_denials_parsed if path in str(d.get("exe", ""))
+                ]
+            if fap_denials_parsed:
+                chain.append({
+                    "step": "fapolicyd denials (raw)",
+                    "finding": f"{len(fap_denials_parsed)} denial(s) found",
+                })
+                denials_found.extend(fap_denials_parsed)
+            else:
+                chain.append({
+                    "step": "fapolicyd denials (raw)",
+                    "finding": "none in provided text",
+                })
+                not_the_cause.append({
+                    "subsystem": "fapolicyd",
+                    "reason": "No FANOTIFY denials in provided text",
+                })
+    else:
+        if ssh is None:
+            return {"error": "no_connection", "message": "SSH required for live analysis"}
+        mode = parse_getenforce((await ssh.execute("getenforce")).stdout)
+        chain.append({"step": "SELinux mode", "finding": mode})
+
+        if mode != "disabled" and process:
+            try:
+                process = sanitize_process_name(process)
+            except SanitizationError as e:
+                return e.to_dict()
+            avc_result = await ssh.execute(
+                f"ausearch -m AVC -ts recent 2>/dev/null | grep {quote_arg(process)}"
             )
-            denials_found.extend(fap_denials)
+            avc_denials_list = parse_avc_denials(avc_result.stdout)
+            if avc_denials_list:
+                chain.append(
+                    {
+                        "step": f"AVC denials for {process}",
+                        "finding": f"{len(avc_denials_list)} denial(s) found",
+                    }
+                )
+                denials_found.extend(avc_denials_list)
+            else:
+                chain.append({"step": f"AVC denials for {process}", "finding": "none"})
+                not_the_cause.append(
+                    {
+                        "subsystem": "selinux",
+                        "reason": f"No AVC denials for {process}",
+                    }
+                )
+        elif mode == "disabled":
+            not_the_cause.append({"subsystem": "selinux", "reason": "SELinux is disabled"})
+
+        fap_installed = (await ssh.execute("rpm -q fapolicyd 2>/dev/null")).exit_code == 0
+        if fap_installed:
+            fap_result = await ssh.execute("ausearch -m FANOTIFY -ts recent 2>/dev/null")
+            fap_denials = parse_fanotify_denials(fap_result.stdout)
+            if path:
+                fap_denials = [d for d in fap_denials if path in str(d.get("exe", ""))]
+            if fap_denials:
+                chain.append(
+                    {
+                        "step": "fapolicyd denials",
+                        "finding": f"{len(fap_denials)} denial(s) found",
+                    }
+                )
+                denials_found.extend(fap_denials)
+            else:
+                chain.append({"step": "fapolicyd denials", "finding": "none"})
+                not_the_cause.append(
+                    {
+                        "subsystem": "fapolicyd",
+                        "reason": "No FANOTIFY denials",
+                    }
+                )
         else:
-            chain.append({"step": "fapolicyd denials", "finding": "none"})
             not_the_cause.append(
                 {
                     "subsystem": "fapolicyd",
-                    "reason": "No FANOTIFY denials",
+                    "reason": "fapolicyd not installed",
                 }
             )
-    else:
-        not_the_cause.append(
-            {
-                "subsystem": "fapolicyd",
-                "reason": "fapolicyd not installed",
-            }
-        )
 
-    if path:
+    if path and not offline and ssh is not None:
         try:
             path = sanitize_path(path)
         except SanitizationError as e:

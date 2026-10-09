@@ -47,8 +47,27 @@ async def fapolicyd_status(ssh: SSHBackend) -> dict:
     }
 
 
-async def fapolicyd_denials(ssh: SSHBackend, since: str = "24h") -> dict:
-    """Get recent fapolicyd FANOTIFY denials."""
+async def fapolicyd_denials(
+    ssh: SSHBackend | None,
+    since: str = "24h",
+    raw_text: str | None = None,
+) -> dict:
+    """Get recent fapolicyd FANOTIFY denials.
+
+    If raw_text is provided, parse from that instead of querying via SSH.
+    Enables offline analysis of log aggregator output.
+    """
+    if raw_text is not None:
+        parsed = parse_fanotify_denials(raw_text)
+        return {
+            "denials": parsed,
+            "total": len(parsed),
+            "since": "raw_input",
+            "source": "raw_text",
+        }
+
+    if ssh is None:
+        return {"error": "no_connection", "message": "SSH connection required"}
     if not await _check_fapolicyd_installed(ssh):
         return FAPOLICYD_NOT_INSTALLED_ERROR
 

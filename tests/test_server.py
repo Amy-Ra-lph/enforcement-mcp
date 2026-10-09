@@ -12,7 +12,7 @@ class TestServerSetup:
     @pytest.mark.asyncio
     async def test_tool_count(self):
         tools = await mcp.list_tools()
-        assert len(tools) == 28
+        assert len(tools) == 29
 
     @pytest.mark.asyncio
     async def test_diagnosis_tools_registered(self):
@@ -35,6 +35,7 @@ class TestServerSetup:
             "diagnosis.mls_categories",
             "diagnosis.cve_exposure",
             "diagnosis.active_containments",
+            "diagnosis.parse_denials",
         ]
         for name in expected:
             assert name in tool_names, f"Missing tool: {name}"

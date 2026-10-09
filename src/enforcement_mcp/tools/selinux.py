@@ -32,17 +32,37 @@ async def check_selinux_enabled(ssh: SSHBackend) -> str:
 
 
 async def avc_denials(
-    ssh: SSHBackend,
+    ssh: SSHBackend | None,
     since: str = "24h",
     source_type: str | None = None,
+    raw_text: str | None = None,
 ) -> dict:
-    """Get recent AVC denials, parsed to structured JSON."""
+    """Get recent AVC denials, parsed to structured JSON.
+
+    If raw_text is provided, parse from that instead of querying via SSH.
+    Enables offline analysis of log aggregator output.
+    """
     if source_type:
         try:
             source_type = sanitize_selinux_type(source_type, "source_type")
         except SanitizationError as e:
             return e.to_dict()
 
+    if raw_text is not None:
+        parsed = parse_avc_denials(raw_text)
+        denials = [AvcDenial(**d).model_dump() for d in parsed if "source_type" in d]
+        if source_type:
+            denials = [d for d in denials if d.get("source_type") == source_type]
+        return {
+            "denials": denials,
+            "total": len(denials),
+            "since": "raw_input",
+            "mode": "offline",
+            "source": "raw_text",
+        }
+
+    if ssh is None:
+        return {"error": "no_connection", "message": "SSH connection required"}
     mode = await check_selinux_enabled(ssh)
     if mode == "disabled":
         return SELINUX_DISABLED_ERROR
