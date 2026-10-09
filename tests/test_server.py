@@ -10,7 +10,7 @@ class TestServerSetup:
         assert mcp.name == "enforcement-mcp"
 
     @pytest.mark.asyncio
-    async def test_has_28_tools(self):
+    async def test_tool_count(self):
         tools = await mcp.list_tools()
         assert len(tools) == 28
 

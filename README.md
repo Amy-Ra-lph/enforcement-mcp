@@ -106,13 +106,47 @@ CVE ID → Red Hat Security Data API → CWE → ATT&CK techniques
 → auto-expire when patched RPM installed
 ```
 
+## Identity & Authorization
+
+Management tools accept an optional `identity_token` parameter for RBAC enforcement.
+Supports OAuth 2.0 (JWT) and SPIFFE workload identity.
+
+### Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `ENFORCEMENT_MCP_IDENTITY_MODE` | `none` | `none`, `oauth`, `spiffe`, or `both` |
+| `ENFORCEMENT_MCP_AUTHZ_POLICY` | `permissive` | `permissive` (log only) or `strict` (enforce) |
+| `ENFORCEMENT_MCP_OAUTH_ISSUER` | — | OAuth issuer URL (e.g. Keycloak realm) |
+| `ENFORCEMENT_MCP_OAUTH_AUDIENCE` | — | Expected JWT audience |
+| `ENFORCEMENT_MCP_OAUTH_JWKS_URI` | — | JWKS endpoint for signature verification |
+| `ENFORCEMENT_MCP_SPIFFE_TRUST_DOMAIN` | — | SPIFFE trust domain |
+
+### Roles
+
+| Role | Access |
+|------|--------|
+| `admin` | All tools |
+| `operator` | Management tools (except MLS user range) |
+| `viewer` | Diagnosis only |
+| `containment` | CVE containment + diagnosis + risk assessment |
+
+Roles are extracted from JWT claims (`roles` or `realm_access.roles`) or
+SPIFFE ID path segments (`spiffe://domain/operator/agent-name`).
+
+### Audit Trail
+
+Every tool invocation is logged to `/var/lib/enforcement-mcp/audit.jsonl` on
+the remote host. Entries include caller identity, tool name, parameters
+(tokens redacted), risk score, and authorization decision.
+
 ## Development
 
 ```bash
 # Install dev dependencies
 uv sync --extra dev
 
-# Run tests (173 tests)
+# Run tests (236 tests)
 uv run pytest tests/ -v
 
 # Lint
@@ -124,9 +158,11 @@ uv run mypy src/
 
 ## Architecture
 
-- **Python 3.12** + FastMCP + Paramiko SSH + Pydantic
+- **Python 3.12** + FastMCP + Paramiko SSH + Pydantic + PyJWT (optional)
 - **SSH-proxy mode**: Zero-install diagnosis on any RHEL host
 - **Three tiers**: diagnosis (free) → diagnosis-elevated (root/read-only) → manage (root/mutating)
+- **Identity**: OAuth 2.0 JWT + SPIFFE SVID verification with role-based access control
+- **Audit**: JSONL audit trail on remote host with token redaction
 - **CVE data**: Direct Red Hat Security Data API (no auth required)
 - **Transport-agnostic**: Tool implementations are pure functions, transport is separate
 

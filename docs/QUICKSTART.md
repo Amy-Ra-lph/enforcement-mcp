@@ -240,6 +240,44 @@ Add to your MCP settings or `.mcp.json`:
 }
 ```
 
+## Identity & RBAC (optional)
+
+Pass an OAuth JWT or SPIFFE ID to management tools for access control:
+
+```json
+{
+  "tool": "manage.set_boolean",
+  "arguments": {
+    "name": "httpd_enable_homedirs",
+    "value": true,
+    "dry_run": false,
+    "identity_token": "eyJhbGciOiJSUzI1NiIs..."
+  }
+}
+```
+
+Configure identity enforcement:
+
+```bash
+export ENFORCEMENT_MCP_IDENTITY_MODE=oauth        # or spiffe, both
+export ENFORCEMENT_MCP_AUTHZ_POLICY=strict         # or permissive (log only)
+export ENFORCEMENT_MCP_OAUTH_ISSUER=https://keycloak.example.com/realms/infra
+export ENFORCEMENT_MCP_OAUTH_AUDIENCE=enforcement-mcp
+export ENFORCEMENT_MCP_OAUTH_JWKS_URI=https://keycloak.example.com/realms/infra/protocol/openid-connect/certs
+```
+
+For SPIFFE workloads, pass the SPIFFE ID directly:
+
+```json
+{
+  "identity_token": "spiffe://example.com/operator/sre-agent"
+}
+```
+
+Roles (`admin`, `operator`, `viewer`, `containment`) control which tools
+each caller can access. All invocations are logged to an audit trail on the
+remote host.
+
 ## Safety model
 
 - **Diagnosis tools** run without root and never modify the system
@@ -248,3 +286,4 @@ Add to your MCP settings or `.mcp.json`:
 - **Critical risk changes** (score 76-100) are hard-blocked
 - **Root MLS range restriction** is permanently blocked (lockout protection)
 - Every change is reversible and the reversal command is included in the response
+- **Identity verification** optional but recommended for multi-agent deployments

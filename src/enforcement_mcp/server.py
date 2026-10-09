@@ -6,7 +6,11 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from .config import get_host_config
+from .audit import write_audit_entry
+from .authz import check_authorization
+from .config import IdentityConfig, get_host_config, get_identity_config
+from .identity import IdentityVerificationError, anonymous_identity, verify_identity
+from .models.identity import CallerIdentity
 from .ssh import SSHBackend
 from .tools import (
     active_containments,
@@ -43,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
     name="enforcement-mcp",
-    version="0.3.0",
+    version="0.4.0",
     instructions=(
         "SELinux, fapolicyd, and MLS policy intelligence for RHEL systems. "
         "Use diagnosis.troubleshoot as the primary entry point when something is blocked. "
@@ -51,11 +55,13 @@ mcp = FastMCP(
         "Use diagnosis.cve_exposure to assess policy against a specific CVE. "
         "Use manage.assess_risk before any policy change to understand impact. "
         "All tools return structured JSON. "
+        "Management tools accept an optional identity_token for RBAC enforcement. "
         "When SELinux is disabled or fapolicyd is not installed, tools return clear error objects."
     ),
 )
 
 _ssh: SSHBackend | None = None
+_identity_config: IdentityConfig | None = None
 
 
 async def _get_ssh() -> SSHBackend:
@@ -70,6 +76,80 @@ async def _get_ssh() -> SSHBackend:
         )
         await _ssh.connect()
     return _ssh
+
+
+def _get_identity_config() -> IdentityConfig:
+    global _identity_config
+    if _identity_config is None:
+        _identity_config = get_identity_config()
+    return _identity_config
+
+
+async def _verify_and_authorize(
+    tool_name: str,
+    identity_token: str | None,
+    params: dict,
+) -> tuple[CallerIdentity, dict | None]:
+    cfg = _get_identity_config()
+    try:
+        caller = await verify_identity(
+            identity_token,
+            mode=cfg.mode,
+            oauth_issuer=cfg.oauth_issuer,
+            oauth_audience=cfg.oauth_audience,
+            oauth_jwks_uri=cfg.oauth_jwks_uri,
+            spiffe_trust_domain=cfg.spiffe_trust_domain,
+        )
+    except IdentityVerificationError as e:
+        return anonymous_identity(), {
+            "error": "identity_verification_failed",
+            "detail": str(e),
+        }
+
+    authz = check_authorization(caller, tool_name, cfg.authz_policy)
+    if not authz["authorized"]:
+        ssh = await _get_ssh()
+        await write_audit_entry(
+            ssh,
+            caller=caller,
+            tool=tool_name,
+            parameters=params,
+            result_status="denied",
+            identity_mode=cfg.mode.value,
+            authz_decision="denied",
+        )
+        return caller, {
+            "error": "authorization_denied",
+            "detail": authz.get("reason", "Access denied"),
+            "caller": authz.get("caller"),
+            "required_roles": authz.get("required_roles"),
+        }
+
+    return caller, None
+
+
+async def _audit_result(
+    caller: CallerIdentity,
+    tool_name: str,
+    params: dict,
+    result: dict,
+) -> None:
+    cfg = _get_identity_config()
+    ssh = await _get_ssh()
+    risk_score = result.get("risk_assessment", {}).get("risk_score") or result.get("risk_score")
+    risk_level = result.get("risk_assessment", {}).get("risk_level") or result.get("risk_level")
+    status = result.get("status", result.get("error", "success"))
+    await write_audit_entry(
+        ssh,
+        caller=caller,
+        tool=tool_name,
+        parameters=params,
+        risk_score=risk_score,
+        risk_level=risk_level,
+        result_status=str(status),
+        identity_mode=cfg.mode.value,
+        authz_decision="authorized",
+    )
 
 
 # --- Diagnosis Tier (no root, read-only) ---
@@ -228,8 +308,13 @@ async def tool_assess_risk(
     path: Annotated[str | None, Field(description="Binary path (for fapolicyd_trust changes)")] = None,
     is_setuid: Annotated[bool, Field(description="Whether the binary is setuid")] = False,
     is_containment: Annotated[bool, Field(description="Whether this is a CVE containment module")] = False,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Pre-change risk assessment. Returns 0-100 risk score with blast radius, reversibility, and alternatives."""
+    tool_params = {"change_type": change_type, "name": name, "value": value}
+    caller, err = await _verify_and_authorize("manage.assess_risk", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
     params: dict = {}
     if name is not None:
@@ -244,26 +329,42 @@ async def tool_assess_risk(
         params["is_setuid"] = is_setuid
     if is_containment:
         params["is_containment"] = is_containment
-    return await assess_risk(ssh, change_type=change_type, **params)
+    result = await assess_risk(ssh, change_type=change_type, **params)
+    await _audit_result(caller, "manage.assess_risk", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.cve_contain")
 async def tool_cve_contain(
     cve: Annotated[str, Field(description="CVE ID, e.g. 'CVE-2024-6387'")],
     strategy: Annotated[str, Field(description="Containment strategy: 'minimal', 'network_isolation', 'full_lockdown', or 'all' to see all options")] = "all",
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Generate targeted containment options for a CVE. Maps exploit chain, identifies policy gaps, generates CIL modules with risk assessment. Does NOT auto-apply."""
+    tool_params = {"cve": cve, "strategy": strategy}
+    caller, err = await _verify_and_authorize("manage.cve_contain", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await cve_contain(ssh, cve_id=cve, strategy=strategy)
+    result = await cve_contain(ssh, cve_id=cve, strategy=strategy)
+    await _audit_result(caller, "manage.cve_contain", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.containment_expire")
 async def tool_containment_expire(
     cve: Annotated[str, Field(description="CVE ID of the containment to check/remove")],
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Check if a CVE containment module can be safely removed (patch applied). Returns removal command if safe."""
+    tool_params = {"cve": cve}
+    caller, err = await _verify_and_authorize("manage.containment_expire", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await containment_expire(ssh, cve_id=cve)
+    result = await containment_expire(ssh, cve_id=cve)
+    await _audit_result(caller, "manage.containment_expire", tool_params, result)
+    return result
 
 
 # --- Phase 3: Management Tier (mutating, risk-gated) ---
@@ -275,10 +376,17 @@ async def tool_set_boolean(
     value: Annotated[bool, Field(description="New value: true to enable, false to disable")],
     persistent: Annotated[bool, Field(description="Persist across reboots (-P flag)")] = True,
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Toggle an SELinux boolean. Returns risk assessment and preview. Set dry_run=false to apply."""
+    tool_params = {"name": name, "value": value, "persistent": persistent, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.set_boolean", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await set_boolean(ssh, name=name, value=value, persistent=persistent, dry_run=dry_run)
+    result = await set_boolean(ssh, name=name, value=value, persistent=persistent, dry_run=dry_run)
+    await _audit_result(caller, "manage.set_boolean", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.generate_module")
@@ -286,10 +394,17 @@ async def tool_generate_module(
     name: Annotated[str, Field(description="Module name, e.g. 'httpd_homedir_fix'")],
     from_denials: Annotated[str, Field(description="Time window for denials, e.g. '1h', '24h'")] = "1h",
     source_type: Annotated[str | None, Field(description="Filter by source type, e.g. 'httpd_t'")] = None,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Generate a CIL module from recent AVC denials. Compares to boolean alternatives. Does NOT auto-load."""
+    tool_params = {"name": name, "from_denials": from_denials, "source_type": source_type}
+    caller, err = await _verify_and_authorize("manage.generate_module", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await generate_module(ssh, name=name, from_denials=from_denials, source_type=source_type)
+    result = await generate_module(ssh, name=name, from_denials=from_denials, source_type=source_type)
+    await _audit_result(caller, "manage.generate_module", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.load_module")
@@ -297,20 +412,34 @@ async def tool_load_module(
     name: Annotated[str, Field(description="Module name")],
     cil: Annotated[str, Field(description="CIL policy content to load")],
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Load a CIL policy module into the running SELinux policy. Set dry_run=false to apply."""
+    tool_params = {"name": name, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.load_module", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await load_module(ssh, name=name, cil=cil, dry_run=dry_run)
+    result = await load_module(ssh, name=name, cil=cil, dry_run=dry_run)
+    await _audit_result(caller, "manage.load_module", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.remove_module")
 async def tool_remove_module(
     name: Annotated[str, Field(description="Module name to remove")],
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Remove a loaded SELinux policy module. Set dry_run=false to apply."""
+    tool_params = {"name": name, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.remove_module", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await remove_module(ssh, name=name, dry_run=dry_run)
+    result = await remove_module(ssh, name=name, dry_run=dry_run)
+    await _audit_result(caller, "manage.remove_module", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.set_file_context")
@@ -318,10 +447,17 @@ async def tool_set_file_context(
     path: Annotated[str, Field(description="Path pattern, e.g. '/home/jsmith/public_html(/.*)?'")],
     context_type: Annotated[str, Field(description="Target SELinux type, e.g. 'httpd_sys_content_t'")],
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Add a persistent file context rule and relabel. Set dry_run=false to apply."""
+    tool_params = {"path": path, "context_type": context_type, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.set_file_context", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await set_file_context(ssh, path=path, context_type=context_type, dry_run=dry_run)
+    result = await set_file_context(ssh, path=path, context_type=context_type, dry_run=dry_run)
+    await _audit_result(caller, "manage.set_file_context", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.fapolicyd_trust_add")
@@ -329,20 +465,34 @@ async def tool_fapolicyd_trust_add(
     path: Annotated[str, Field(description="Full path to binary, e.g. '/opt/myapp/bin/worker'")],
     reason: Annotated[str, Field(description="Why this binary should be trusted")] = "",
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Add a binary to fapolicyd ancillary trust. Checks setuid, location risk. Set dry_run=false to apply."""
+    tool_params = {"path": path, "reason": reason, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.fapolicyd_trust_add", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await fapolicyd_trust_add(ssh, path=path, reason=reason, dry_run=dry_run)
+    result = await fapolicyd_trust_add(ssh, path=path, reason=reason, dry_run=dry_run)
+    await _audit_result(caller, "manage.fapolicyd_trust_add", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.fapolicyd_trust_remove")
 async def tool_fapolicyd_trust_remove(
     path: Annotated[str, Field(description="Full path to binary to remove from trust")],
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Remove a binary from fapolicyd trust. Set dry_run=false to apply."""
+    tool_params = {"path": path, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.fapolicyd_trust_remove", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await fapolicyd_trust_remove(ssh, path=path, dry_run=dry_run)
+    result = await fapolicyd_trust_remove(ssh, path=path, dry_run=dry_run)
+    await _audit_result(caller, "manage.fapolicyd_trust_remove", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.mls_assign_category")
@@ -351,10 +501,17 @@ async def tool_mls_assign_category(
     categories: Annotated[list[str], Field(description="MLS categories, e.g. ['c5', 'c10']")],
     recursive: Annotated[bool, Field(description="Apply recursively")] = False,
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Assign MLS categories to files. Set dry_run=false to apply."""
+    tool_params = {"path": path, "categories": categories, "recursive": recursive, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.mls_assign_category", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await mls_assign_category(ssh, path=path, categories=categories, recursive=recursive, dry_run=dry_run)
+    result = await mls_assign_category(ssh, path=path, categories=categories, recursive=recursive, dry_run=dry_run)
+    await _audit_result(caller, "manage.mls_assign_category", tool_params, result)
+    return result
 
 
 @mcp.tool(name="manage.mls_set_user_range")
@@ -362,7 +519,14 @@ async def tool_mls_set_user_range(
     login: Annotated[str, Field(description="Login name, e.g. 'contractor'")],
     range_spec: Annotated[str, Field(description="MLS range, e.g. 's0:c5,c10'")],
     dry_run: Annotated[bool, Field(description="Preview only (default). Set false to apply.")] = True,
+    identity_token: Annotated[str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")] = None,
 ) -> dict:
     """Modify a user's MLS range. Hard-blocks root range restriction. Set dry_run=false to apply."""
+    tool_params = {"login": login, "range_spec": range_spec, "dry_run": dry_run}
+    caller, err = await _verify_and_authorize("manage.mls_set_user_range", identity_token, tool_params)
+    if err:
+        return err
     ssh = await _get_ssh()
-    return await mls_set_user_range(ssh, login=login, range_spec=range_spec, dry_run=dry_run)
+    result = await mls_set_user_range(ssh, login=login, range_spec=range_spec, dry_run=dry_run)
+    await _audit_result(caller, "manage.mls_set_user_range", tool_params, result)
+    return result
