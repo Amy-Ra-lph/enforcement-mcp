@@ -1,7 +1,9 @@
 """Pydantic models for enforcement-mcp."""
 
+from .cve import Containment, ContainmentOption, CveDetail, CveExposure, ExploitStep
 from .fapolicyd import FapolicydDenial, FapolicydRule, FapolicydStatus, TrustEntry
 from .mls import MlsCategory, MlsFileLevel, MlsUserMapping
+from .risk import RiskAssessment
 from .selinux import (
     AvcDenial,
     BooleanInfo,
@@ -15,6 +17,11 @@ from .selinux import (
 __all__ = [
     "AvcDenial",
     "BooleanInfo",
+    "Containment",
+    "ContainmentOption",
+    "CveDetail",
+    "CveExposure",
+    "ExploitStep",
     "FapolicydDenial",
     "FapolicydRule",
     "FapolicydStatus",
@@ -23,6 +30,7 @@ __all__ = [
     "MlsFileLevel",
     "MlsUserMapping",
     "PolicyRule",
+    "RiskAssessment",
     "SelinuxStatus",
     "SuggestedFix",
     "TrustEntry",

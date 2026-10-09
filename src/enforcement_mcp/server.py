@@ -9,8 +9,13 @@ from pydantic import Field
 from .config import get_host_config
 from .ssh import SSHBackend
 from .tools import (
+    active_containments,
+    assess_risk,
     avc_denials,
     boolean_list,
+    containment_expire,
+    cve_contain,
+    cve_exposure,
     denial_explain,
     fapolicyd_denials,
     fapolicyd_rules,
@@ -29,11 +34,13 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
     name="enforcement-mcp",
-    version="0.1.0",
+    version="0.2.0",
     instructions=(
         "SELinux, fapolicyd, and MLS policy intelligence for RHEL systems. "
         "Use diagnosis.troubleshoot as the primary entry point when something is blocked. "
         "Use diagnosis.host_posture for a comprehensive security overview. "
+        "Use diagnosis.cve_exposure to assess policy against a specific CVE. "
+        "Use manage.assess_risk before any policy change to understand impact. "
         "All tools return structured JSON. "
         "When SELinux is disabled or fapolicyd is not installed, tools return clear error objects."
     ),
@@ -54,6 +61,9 @@ async def _get_ssh() -> SSHBackend:
         )
         await _ssh.connect()
     return _ssh
+
+
+# --- Diagnosis Tier (no root, read-only) ---
 
 
 @mcp.tool(name="diagnosis.troubleshoot")
@@ -179,3 +189,69 @@ async def tool_mls_categories() -> dict:
     """Get defined MLS sensitivities and categories."""
     ssh = await _get_ssh()
     return await mls_categories(ssh)
+
+
+# --- Phase 2: CVE Exposure + Risk Assessment + Containment ---
+
+
+@mcp.tool(name="diagnosis.cve_exposure")
+async def tool_cve_exposure(
+    cve: Annotated[str, Field(description="CVE ID, e.g. 'CVE-2024-6387'")],
+) -> dict:
+    """Assess current policy effectiveness against a CVE's exploit chain. Maps CVE to ATT&CK techniques and checks which steps SELinux blocks."""
+    ssh = await _get_ssh()
+    return await cve_exposure(ssh, cve_id=cve)
+
+
+@mcp.tool(name="diagnosis.active_containments")
+async def tool_active_containments() -> dict:
+    """List temporary CVE containment modules currently in effect, with patch status."""
+    ssh = await _get_ssh()
+    return await active_containments(ssh)
+
+
+@mcp.tool(name="manage.assess_risk")
+async def tool_assess_risk(
+    change_type: Annotated[str, Field(description="Type of change: 'boolean', 'module', or 'fapolicyd_trust'")],
+    name: Annotated[str | None, Field(description="Boolean name or module name")] = None,
+    value: Annotated[bool | None, Field(description="New boolean value (for boolean changes)")] = None,
+    cil: Annotated[str | None, Field(description="CIL content (for module changes)")] = None,
+    path: Annotated[str | None, Field(description="Binary path (for fapolicyd_trust changes)")] = None,
+    is_setuid: Annotated[bool, Field(description="Whether the binary is setuid")] = False,
+    is_containment: Annotated[bool, Field(description="Whether this is a CVE containment module")] = False,
+) -> dict:
+    """Pre-change risk assessment. Returns 0-100 risk score with blast radius, reversibility, and alternatives."""
+    ssh = await _get_ssh()
+    params: dict = {}
+    if name is not None:
+        params["name"] = name
+    if value is not None:
+        params["value"] = value
+    if cil is not None:
+        params["cil"] = cil
+    if path is not None:
+        params["path"] = path
+    if is_setuid:
+        params["is_setuid"] = is_setuid
+    if is_containment:
+        params["is_containment"] = is_containment
+    return await assess_risk(ssh, change_type=change_type, **params)
+
+
+@mcp.tool(name="manage.cve_contain")
+async def tool_cve_contain(
+    cve: Annotated[str, Field(description="CVE ID, e.g. 'CVE-2024-6387'")],
+    strategy: Annotated[str, Field(description="Containment strategy: 'minimal', 'network_isolation', 'full_lockdown', or 'all' to see all options")] = "all",
+) -> dict:
+    """Generate targeted containment options for a CVE. Maps exploit chain, identifies policy gaps, generates CIL modules with risk assessment. Does NOT auto-apply."""
+    ssh = await _get_ssh()
+    return await cve_contain(ssh, cve_id=cve, strategy=strategy)
+
+
+@mcp.tool(name="manage.containment_expire")
+async def tool_containment_expire(
+    cve: Annotated[str, Field(description="CVE ID of the containment to check/remove")],
+) -> dict:
+    """Check if a CVE containment module can be safely removed (patch applied). Returns removal command if safe."""
+    ssh = await _get_ssh()
+    return await containment_expire(ssh, cve_id=cve)

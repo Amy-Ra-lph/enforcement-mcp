@@ -1,7 +1,7 @@
 """Convert human-readable time specs to ausearch timestamp format."""
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def parse_time_spec(spec: str) -> str:
@@ -24,6 +24,6 @@ def parse_time_spec(spec: str) -> str:
 
     delta_map = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
     delta = timedelta(**{delta_map[unit]: amount})
-    target = datetime.now(timezone.utc) - delta
+    target = datetime.now(UTC) - delta
 
     return target.strftime("%m/%d/%Y %H:%M:%S")
