@@ -146,7 +146,7 @@ the remote host. Entries include caller identity, tool name, parameters
 # Install dev dependencies
 uv sync --extra dev
 
-# Run tests (295 tests)
+# Run tests (291 tests)
 uv run pytest tests/ -v
 
 # Lint
@@ -164,6 +164,7 @@ uv run mypy src/
 - **Identity**: OAuth 2.0 JWT + SPIFFE SVID verification with role-based access control
 - **Audit**: JSONL audit trail on remote host with token redaction
 - **CVE data**: Direct Red Hat Security Data API (no auth required)
+- **Input sanitization**: All tool parameters validated before shell execution ([threat model](docs/THREAT-MODEL.md))
 - **Transport-agnostic**: Tool implementations are pure functions, transport is separate
 
 ## License

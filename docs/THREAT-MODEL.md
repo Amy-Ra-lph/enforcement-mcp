@@ -71,7 +71,7 @@ Trust boundaries:
 
 | ID | Threat | ATT&CK | Severity | Status |
 |----|--------|--------|----------|--------|
-| E1 | **Viewer → Admin via command injection** — Diagnosis tools (no identity check) accept unsanitized `path` and `process` params, execute as root. Viewer-role caller can achieve RCE without any identity token. | T1068 (Exploitation for Privilege Escalation) | **Critical** | **FIXED** |
+| E1 | **Viewer → Admin via command injection** — Diagnosis tools (no identity check) previously accepted unsanitized `path` and `process` params, executed as root. All diagnosis tools now validate inputs via `sanitize.py`. | T1068 (Exploitation for Privilege Escalation) | **Critical** | **FIXED** |
 | E2 | **Permissive mode default** — Default `authz_policy=permissive` logs but doesn't enforce. All callers pass authorization regardless of role. | T1548 (Abuse Elevation Control Mechanism) | Medium | **FIXED** |
 
 ---
@@ -127,7 +127,7 @@ New module with validators for each parameter type:
 - `sanitize_mls_range(range_spec)` — MLS range format: `s[0-9]+(-s[0-9]+)?(:[cC][0-9.,]+)?`
 - `sanitize_mls_categories(categories)` — Each matches `c[0-9]+`
 - `sanitize_process_name(process)` — Alphanumeric + hyphens/underscores/dots
-- `quote_shell_arg(arg)` — `shlex.quote()` wrapper for anything flowing into commands
+- `quote_arg(arg)` — `shlex.quote()` wrapper for anything flowing into commands
 
 All tool functions call sanitizers before building commands. Invalid input returns
 structured error response instead of executing.
