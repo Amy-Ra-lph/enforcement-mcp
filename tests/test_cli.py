@@ -8,10 +8,10 @@ from enforcement_mcp.cli import _merge_flat, _merge_nested, cmd_setup
 class TestMergeFlat:
     def test_empty_config_write(self):
         config = {}
-        snippet = {"command": "uvx", "args": ["enforcement-mcp"]}
+        snippet = {"command": "enforcement-mcp", "args": []}
         _merge_flat(config, snippet, write=True)
         assert "enforcement-mcp" in config
-        assert config["enforcement-mcp"]["command"] == "uvx"
+        assert config["enforcement-mcp"]["command"] == "enforcement-mcp"
 
     def test_existing_entry_detected(self):
         config = {"enforcement-mcp": {"command": "old"}}
@@ -21,7 +21,7 @@ class TestMergeFlat:
 
     def test_no_existing_entry(self):
         config = {"other-mcp": {"command": "x"}}
-        snippet = {"command": "uvx"}
+        snippet = {"command": "enforcement-mcp"}
         result = _merge_flat(config, snippet)
         assert result is None
 
@@ -29,9 +29,9 @@ class TestMergeFlat:
 class TestMergeNested:
     def test_empty_config_write(self):
         config = {}
-        snippet = {"command": "uvx"}
+        snippet = {"command": "enforcement-mcp"}
         _merge_nested(config, snippet, write=True)
-        assert config["mcpServers"]["enforcement-mcp"]["command"] == "uvx"
+        assert config["mcpServers"]["enforcement-mcp"]["command"] == "enforcement-mcp"
 
     def test_existing_entry_detected(self):
         config = {"mcpServers": {"enforcement-mcp": {"command": "old"}}}
@@ -41,7 +41,7 @@ class TestMergeNested:
 
     def test_preserves_other_servers(self):
         config = {"mcpServers": {"other-mcp": {"command": "x"}}}
-        snippet = {"command": "uvx"}
+        snippet = {"command": "enforcement-mcp"}
         _merge_nested(config, snippet, write=True)
         assert "other-mcp" in config["mcpServers"]
         assert "enforcement-mcp" in config["mcpServers"]

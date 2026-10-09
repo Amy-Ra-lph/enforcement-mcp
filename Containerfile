@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/python-312:latest
+FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
 
 LABEL name="enforcement-mcp" \
       summary="SELinux/fapolicyd/MLS policy intelligence MCP server" \
@@ -7,9 +7,7 @@ LABEL name="enforcement-mcp" \
 
 WORKDIR /opt/app-root/src
 
-USER 0
-RUN dnf install -y openssh-clients && dnf clean all
-USER 1001
+RUN microdnf install -y python3 python3-pip openssh-clients && microdnf clean all
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/

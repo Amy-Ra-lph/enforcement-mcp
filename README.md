@@ -11,13 +11,16 @@ for every operation — no more guessing what `audit2allow` means.
 ## Quick Start
 
 ```bash
-# One-command setup: configure your MCP client + verify the target host
+# Install from GitHub
+pip install git+https://github.com/Amy-Ra-lph/enforcement-mcp.git
+
+# Auto-configure your MCP client + verify the target host
 enforcement-mcp setup webserver01.example.com
 enforcement-mcp check webserver01.example.com
 
-# Or run the server directly
+# Or run directly
 export ENFORCEMENT_MCP_TARGET=myhost.example.com
-uvx enforcement-mcp
+enforcement-mcp
 
 # Container deployment
 podman run -i --rm \

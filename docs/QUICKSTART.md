@@ -11,9 +11,8 @@ Get from zero to diagnosing SELinux denials in under 5 minutes.
 ## 1. Install and configure
 
 ```bash
-# Install
-pip install enforcement-mcp
-# or: uvx enforcement-mcp
+# Install from GitHub
+pip install git+https://github.com/Amy-Ra-lph/enforcement-mcp.git
 
 # Auto-configure your MCP client (Claude Code, Claude Desktop, Cursor)
 enforcement-mcp setup webserver01.example.com
@@ -219,8 +218,8 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "enforcement-mcp": {
-      "command": "uvx",
-      "args": ["enforcement-mcp"],
+      "command": "enforcement-mcp",
+      "args": [],
       "env": {
         "ENFORCEMENT_MCP_TARGET": "myhost.example.com"
       }
@@ -236,8 +235,8 @@ Add to your MCP settings or `.mcp.json`:
 ```json
 {
   "enforcement-mcp": {
-    "command": "uvx",
-    "args": ["enforcement-mcp"],
+    "command": "enforcement-mcp",
+    "args": [],
     "env": {
       "ENFORCEMENT_MCP_TARGET": "myhost.example.com"
     }
@@ -293,8 +292,7 @@ existing SSH key is all you need.
 
 ```bash
 # Install (pick one)
-uvx enforcement-mcp                              # fastest
-pip install enforcement-mcp                       # traditional
+pip install git+https://github.com/Amy-Ra-lph/enforcement-mcp.git
 podman pull quay.io/rhel-security/enforcement-mcp # container
 
 # Auto-configure your MCP client and verify the target
@@ -313,8 +311,8 @@ Or configure manually:
 ```json
 {
   "enforcement-mcp": {
-    "command": "uvx",
-    "args": ["enforcement-mcp"],
+    "command": "enforcement-mcp",
+    "args": [],
     "env": {
       "ENFORCEMENT_MCP_TARGET": "webserver01.example.com"
     }
@@ -328,8 +326,8 @@ Or configure manually:
 {
   "mcpServers": {
     "enforcement-mcp": {
-      "command": "uvx",
-      "args": ["enforcement-mcp"],
+      "command": "enforcement-mcp",
+      "args": [],
       "env": {
         "ENFORCEMENT_MCP_TARGET": "webserver01.example.com"
       }

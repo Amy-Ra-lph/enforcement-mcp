@@ -18,8 +18,8 @@ def cmd_setup(target: str | None = None) -> None:
         sys.exit(1)
 
     snippet = {
-        "command": "uvx",
-        "args": ["enforcement-mcp"],
+        "command": "enforcement-mcp",
+        "args": [],
         "env": {"ENFORCEMENT_MCP_TARGET": target},
     }
 
