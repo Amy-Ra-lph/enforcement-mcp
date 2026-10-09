@@ -2,8 +2,9 @@
 
 SELinux, fapolicyd, and MLS policy intelligence MCP server for LLM agents.
 
-Diagnose why applications are blocked by security policy. Structured JSON output
-for every query — no more guessing what `audit2allow` means.
+Diagnose why applications are blocked by security policy. Assess risk before
+changes. Contain CVEs with targeted, reversible policy. Structured JSON output
+for every operation — no more guessing what `audit2allow` means.
 
 ## Quick Start
 
@@ -14,38 +15,118 @@ export ENFORCEMENT_MCP_HOST=myhost.example.com
 # Run via uvx
 uvx enforcement-mcp
 
-# Run via container
+# Or with uv directly
+uv run enforcement-mcp
+
+# Container deployment
 podman run -i --rm \
   -e ENFORCEMENT_MCP_HOST=myhost.example.com \
   -v ~/.ssh/id_ed25519:/app/.ssh/id_ed25519:ro \
   quay.io/enforcement-mcp/enforcement-mcp
 ```
 
+### Configuration
+
+| Environment Variable | Required | Default | Description |
+|---------------------|----------|---------|-------------|
+| `ENFORCEMENT_MCP_HOST` | Yes | — | Target RHEL host |
+| `ENFORCEMENT_MCP_USER` | No | `root` | SSH user |
+| `ENFORCEMENT_MCP_PORT` | No | `22` | SSH port |
+| `ENFORCEMENT_MCP_KEY_FILE` | No | `~/.ssh/id_rsa` | SSH private key |
+
 ## Tools
 
-All tools return structured JSON. Use `diagnosis.troubleshoot` as the primary
-entry point when something is blocked.
+28 tools across three permission tiers. All return structured JSON.
+
+### Diagnosis (no root, read-only)
+
+Use `diagnosis.troubleshoot` as the primary entry point when something is blocked.
 
 | Tool | Description |
 |------|-------------|
 | `diagnosis.troubleshoot` | Composite diagnosis across SELinux + fapolicyd + DAC |
 | `diagnosis.host_posture` | Security posture summary with 0-100 score |
-| `diagnosis.avc_denials` | Recent SELinux AVC denials |
-| `diagnosis.policy_query` | Query SELinux allow rules |
-| `diagnosis.boolean_list` | SELinux booleans with state |
-| `diagnosis.file_context` | Expected vs actual file context |
-| `diagnosis.denial_explain` | Explain why a denial happened |
-| `diagnosis.fapolicyd_status` | fapolicyd daemon status |
-| `diagnosis.fapolicyd_denials` | Recent fapolicyd denials |
-| `diagnosis.fapolicyd_trust_check` | Check binary trust status |
-| `diagnosis.fapolicyd_rules` | Current fapolicyd rules |
-| `diagnosis.mls_user_mappings` | User-to-SELinux-user MLS mappings |
-| `diagnosis.mls_file_level` | MLS level of file or process |
-| `diagnosis.mls_categories` | Defined MLS categories |
+| `diagnosis.avc_denials` | Recent SELinux AVC denials, parsed and structured |
+| `diagnosis.policy_query` | Query SELinux allow rules for a source type |
+| `diagnosis.boolean_list` | SELinux booleans with current state |
+| `diagnosis.file_context` | Expected vs actual file context (detects mismatches) |
+| `diagnosis.denial_explain` | Explain why a denial happened (boolean, no_rule, constraint) |
+| `diagnosis.fapolicyd_status` | fapolicyd daemon status, rule count, trust DB size |
+| `diagnosis.fapolicyd_denials` | Recent fapolicyd FANOTIFY denials |
+| `diagnosis.fapolicyd_trust_check` | Check if a binary is trusted |
+| `diagnosis.fapolicyd_rules` | Current fapolicyd rule set |
+| `diagnosis.mls_user_mappings` | User-to-SELinux-user MLS/MCS mappings |
+| `diagnosis.mls_file_level` | MLS level and categories of a file or process |
+| `diagnosis.mls_categories` | Defined MLS sensitivities and categories |
+| `diagnosis.cve_exposure` | Assess policy against a CVE's exploit chain (ATT&CK mapping) |
+| `diagnosis.active_containments` | List temporary CVE containment modules with patch status |
 
-## Status
+### Management (mutating, risk-gated)
 
-Phase 1: Diagnosis PoC — SSH-proxy mode, read-only tools.
+All management tools default to `dry_run=true` (preview only). Set `dry_run=false`
+to apply. Every mutation runs `assess_risk` first. Critical-risk changes are blocked.
+
+| Tool | Description |
+|------|-------------|
+| `manage.assess_risk` | Pre-change risk assessment (0-100 score) |
+| `manage.set_boolean` | Toggle an SELinux boolean |
+| `manage.generate_module` | Generate CIL module from observed denials |
+| `manage.load_module` | Load a CIL policy module |
+| `manage.remove_module` | Remove a loaded policy module |
+| `manage.set_file_context` | Add persistent file context rule + relabel |
+| `manage.fapolicyd_trust_add` | Add binary to fapolicyd trust (checks setuid, location) |
+| `manage.fapolicyd_trust_remove` | Remove binary from fapolicyd trust |
+| `manage.mls_assign_category` | Assign MLS categories to files |
+| `manage.mls_set_user_range` | Modify user MLS range (hard-blocks root restriction) |
+| `manage.cve_contain` | Generate targeted CVE containment with risk assessment |
+| `manage.containment_expire` | Safe containment removal after patch verified |
+
+## Risk Scoring
+
+Every mutation is scored 0-100 before execution:
+
+| Score | Level | Behavior |
+|-------|-------|----------|
+| 0-25 | Low | Proceed with confirmation |
+| 26-50 | Medium | Show alternatives, confirm |
+| 51-75 | High | Recommend alternative, require override |
+| 76-100 | Critical | Hard block |
+
+Scoring factors: blast radius, permission severity, target sensitivity,
+reversibility, least privilege gap, lockout potential.
+
+## CVE Containment Pipeline
+
+```
+CVE ID → Red Hat Security Data API → CWE → ATT&CK techniques
+→ SELinux permissions per exploit step → check current policy
+→ generate targeted CIL containment → risk assess → apply
+→ auto-expire when patched RPM installed
+```
+
+## Development
+
+```bash
+# Install dev dependencies
+uv sync --extra dev
+
+# Run tests (173 tests)
+uv run pytest tests/ -v
+
+# Lint
+uv run ruff check src/ tests/
+
+# Type check
+uv run mypy src/
+```
+
+## Architecture
+
+- **Python 3.12** + FastMCP + Paramiko SSH + Pydantic
+- **SSH-proxy mode**: Zero-install diagnosis on any RHEL host
+- **Three tiers**: diagnosis (free) → diagnosis-elevated (root/read-only) → manage (root/mutating)
+- **CVE data**: Direct Red Hat Security Data API (no auth required)
+- **Transport-agnostic**: Tool implementations are pure functions, transport is separate
 
 ## License
 
