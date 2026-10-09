@@ -11,14 +11,13 @@ for every operation — no more guessing what `audit2allow` means.
 ## Quick Start
 
 ```bash
-# Set target host
+# One-command setup: configure your MCP client + verify the target host
+enforcement-mcp setup webserver01.example.com
+enforcement-mcp check webserver01.example.com
+
+# Or run the server directly
 export ENFORCEMENT_MCP_TARGET=myhost.example.com
-
-# Run via uvx
 uvx enforcement-mcp
-
-# Or with uv directly
-uv run enforcement-mcp
 
 # Container deployment
 podman run -i --rm \
@@ -159,7 +158,7 @@ the remote host. Entries include caller identity, tool name, parameters
 # Install dev dependencies
 uv sync --extra dev
 
-# Run tests (314 tests)
+# Run tests (322 tests)
 uv run pytest tests/ -v
 
 # Lint
@@ -179,6 +178,20 @@ uv run mypy src/
 - **CVE data**: Direct Red Hat Security Data API (no auth required)
 - **Input sanitization**: All tool parameters validated before shell execution ([threat model](docs/THREAT-MODEL.md))
 - **Transport-agnostic**: Tool implementations are pure functions, transport is separate
+
+## CLI Commands
+
+```bash
+# Auto-configure Claude Code, Claude Desktop, or Cursor
+enforcement-mcp setup webserver01.example.com
+
+# Verify target host has required packages (setools, audit, etc.)
+enforcement-mcp check webserver01.example.com
+
+# Run the MCP server (default)
+enforcement-mcp serve
+enforcement-mcp serve --transport sse --port 8100
+```
 
 ## License
 

@@ -11,22 +11,27 @@ Get from zero to diagnosing SELinux denials in under 5 minutes.
 ## 1. Install and configure
 
 ```bash
-# Clone and install
-git clone https://github.com/Amy-Ra-lph/enforcement-mcp.git
-cd enforcement-mcp
-pip install -e .
+# Install
+pip install enforcement-mcp
+# or: uvx enforcement-mcp
 
-# Point at your RHEL host
+# Auto-configure your MCP client (Claude Code, Claude Desktop, Cursor)
+enforcement-mcp setup webserver01.example.com
+
+# Verify the target host has required packages
+enforcement-mcp check webserver01.example.com
+```
+
+The `setup` command detects installed MCP clients and writes the config
+snippet for you. The `check` command SSHes to the target and reports
+which prerequisites are installed (setools-console, audit, fapolicyd, etc.).
+
+Or configure manually:
+
+```bash
 export ENFORCEMENT_MCP_TARGET=myhost.example.com
 export ENFORCEMENT_MCP_USER=root           # default
 export ENFORCEMENT_MCP_KEY_FILE=~/.ssh/id_ed25519  # optional
-```
-
-Or use `uv`:
-
-```bash
-uv sync
-uv run enforcement-mcp
 ```
 
 ## 2. First diagnosis: "Why is httpd blocked?"
@@ -291,9 +296,17 @@ existing SSH key is all you need.
 uvx enforcement-mcp                              # fastest
 pip install enforcement-mcp                       # traditional
 podman pull quay.io/rhel-security/enforcement-mcp # container
+
+# Auto-configure your MCP client and verify the target
+enforcement-mcp setup webserver01.example.com
+enforcement-mcp check webserver01.example.com
 ```
 
-Add to your MCP client config:
+The `setup` command detects Claude Code, Claude Desktop, and Cursor, then
+writes the config for you. The `check` command SSHes to the target and
+reports PASS/MISS for each prerequisite.
+
+Or configure manually:
 
 **Claude Code** (`~/.claude/settings.json` or project `.mcp.json`):
 
