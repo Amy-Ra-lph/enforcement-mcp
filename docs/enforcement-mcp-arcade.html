@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>enforcement-mcp — SELinux + fapolicyd Intelligence for LLM Agents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;500;600;700;900&family=Red+Hat+Text:wght@400;500;600;700&family=Red+Hat+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --rh-red:#EE0000;--rh-red-dark:#A60000;--rh-black:#151515;--rh-white:#FFFFFF;
+  --rh-gray-100:#F5F5F5;--rh-gray-200:#D2D2D2;--rh-gray-400:#6A6E73;--rh-gray-600:#3C3F42;
+  --rh-blue:#0066CC;--rh-green:#3E8635;--rh-orange:#F0AB00;--rh-purple:#6753AC;
+  --rh-teal:#009596;--rh-cyan:#009596;
+  --font-display:'Red Hat Display',sans-serif;
+  --font-text:'Red Hat Text',sans-serif;
+  --font-mono:'Red Hat Mono',monospace;
+  --slide-transition:0.6s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
+
+.conf-bar{
+  background:var(--rh-gray-600);color:var(--rh-white);
+  text-align:center;padding:4px 0;font-size:10px;
+  letter-spacing:2px;text-transform:uppercase;
+  font-family:var(--font-display);font-weight:500;
+  position:fixed;top:0;left:0;right:0;z-index:200;
+}
+
+.nav-bar{
+  position:fixed;bottom:0;left:0;right:0;z-index:200;
+  background:rgba(21,21,21,0.95);backdrop-filter:blur(8px);
+  border-top:1px solid rgba(255,255,255,0.1);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 24px;
+}
+.nav-bar .slide-counter{
+  font-family:var(--font-mono);font-size:13px;color:rgba(255,255,255,0.6);
+  min-width:80px;
+}
+.nav-bar .progress-track{
+  flex:1;max-width:400px;height:3px;background:rgba(255,255,255,0.1);
+  border-radius:2px;margin:0 20px;
+}
+.nav-bar .progress-fill{
+  height:100%;background:var(--rh-red);border-radius:2px;
+  transition:width 0.4s ease;
+}
+.nav-dots{display:flex;gap:6px}
+.nav-dots button{
+  width:8px;height:8px;border-radius:50%;border:none;
+  background:rgba(255,255,255,0.2);cursor:pointer;
+  transition:all 0.3s ease;padding:0;
+}
+.nav-dots button.active{background:var(--rh-red);transform:scale(1.3)}
+.nav-dots button:hover{background:rgba(255,255,255,0.5)}
+.nav-btn{
+  background:none;border:1px solid rgba(255,255,255,0.2);
+  color:var(--rh-white);font-family:var(--font-display);
+  font-size:13px;padding:6px 16px;border-radius:4px;
+  cursor:pointer;transition:all 0.2s;
+}
+.nav-btn:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.4)}
+.nav-btn:disabled{opacity:0.3;cursor:default}
+
+.key-hint{
+  position:fixed;bottom:56px;right:24px;z-index:201;
+  font-family:var(--font-mono);font-size:11px;color:rgba(255,255,255,0.25);
+}
+.key-hint kbd{
+  background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
+  border-radius:3px;padding:1px 6px;font-size:10px;
+}
+
+.slides-wrap{
+  position:fixed;top:24px;left:0;right:0;bottom:48px;
+  overflow:hidden;
+}
+.slide{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;
+  opacity:0;transform:translateX(60px);
+  transition:opacity var(--slide-transition),transform var(--slide-transition);
+  pointer-events:none;overflow-y:auto;
+}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.exiting{opacity:0;transform:translateX(-60px)}
+
+/* --- Title slide --- */
+.title-slide{
+  background:linear-gradient(135deg,#0a0a0a 0%,#1a1a2e 50%,#16213e 100%);
+  justify-content:center;align-items:center;padding:60px;
+  text-align:center;color:var(--rh-white);
+}
+.title-slide h1{
+  font-family:var(--font-display);font-size:3rem;font-weight:900;
+  line-height:1.1;margin-bottom:16px;
+}
+.title-slide h1 .highlight{color:var(--rh-red)}
+.title-slide .subtitle{
+  font-size:1.15rem;color:rgba(255,255,255,0.7);
+  max-width:720px;margin:0 auto 32px;line-height:1.5;
+}
+.title-slide .context-box{
+  background:rgba(238,0,0,0.08);border:1px solid rgba(238,0,0,0.25);
+  border-radius:8px;padding:20px 28px;max-width:720px;
+  text-align:left;font-size:0.92rem;line-height:1.6;
+  color:rgba(255,255,255,0.85);
+}
+
+/* --- Story slide (split: question + tool output) --- */
+.story-slide{
+  flex-direction:row;background:#0a0a0a;color:var(--rh-white);
+}
+.story-slide .story-header{
+  position:absolute;top:0;left:0;right:0;
+  text-align:center;padding:14px 20px;z-index:10;
+  background:linear-gradient(180deg,rgba(10,10,10,0.95) 0%,transparent 100%);
+}
+.story-slide .story-header h2{
+  font-family:var(--font-display);font-size:1.3rem;font-weight:700;
+  color:var(--rh-white);
+}
+.story-slide .story-header .story-tag{
+  font-family:var(--font-mono);font-size:0.72rem;
+  color:var(--rh-red);letter-spacing:2px;text-transform:uppercase;
+  margin-bottom:4px;
+}
+
+.panel{
+  flex:1;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;
+  padding:72px 32px 40px;position:relative;
+  overflow:hidden;
+}
+.panel-question{
+  background:linear-gradient(180deg,#0d0d0d 0%,#141414 100%);
+  border-right:1px solid rgba(255,255,255,0.06);
+}
+.panel-output{
+  background:linear-gradient(180deg,#0a0a12 0%,#0f0f1a 100%);
+}
+.panel-label{
+  position:absolute;top:52px;left:50%;transform:translateX(-50%);
+  font-family:var(--font-display);font-size:0.68rem;font-weight:600;
+  letter-spacing:2px;text-transform:uppercase;
+  padding:4px 14px;border-radius:3px;white-space:nowrap;
+}
+.panel-question .panel-label{
+  color:var(--rh-orange);background:rgba(240,171,0,0.1);border:1px solid rgba(240,171,0,0.2);
+}
+.panel-output .panel-label{
+  color:var(--rh-green);background:rgba(62,134,53,0.08);border:1px solid rgba(62,134,53,0.2);
+}
+
+/* --- JSON block --- */
+.json-block{
+  background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+  border-radius:8px;padding:16px 20px;
+  font-family:var(--font-mono);font-size:0.78rem;
+  line-height:1.6;color:rgba(255,255,255,0.85);
+  max-width:420px;width:100%;white-space:pre-wrap;word-break:break-word;
+  opacity:0;transform:translateY(12px);
+  transition:all 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+.json-block.visible{opacity:1;transform:translateY(0)}
+.json-block .json-label{
+  font-family:var(--font-display);font-size:0.72rem;font-weight:600;
+  letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;
+  display:block;
+}
+.json-block .json-label.input-label{color:var(--rh-orange)}
+.json-block .json-label.output-label{color:var(--rh-green)}
+.json-key{color:#7fb5e6}
+.json-str{color:#98c379}
+.json-num{color:#d19a66}
+.json-bool{color:#c678dd}
+.json-null{color:#888}
+
+/* --- Info card --- */
+.info-card{
+  background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);
+  border-radius:8px;padding:18px 22px;
+  max-width:420px;width:100%;
+  margin-top:16px;
+  opacity:0;transform:translateY(12px);
+  transition:all 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+.info-card.visible{opacity:1;transform:translateY(0)}
+.info-card .info-title{
+  font-family:var(--font-display);font-weight:700;font-size:0.95rem;
+  margin-bottom:8px;
+}
+.info-card .info-detail{font-size:0.85rem;color:rgba(255,255,255,0.6);line-height:1.5}
+.info-card .info-detail strong{color:rgba(255,255,255,0.9)}
+
+/* --- Tool badge --- */
+.tool-badge{
+  display:inline-block;
+  font-family:var(--font-mono);font-size:0.72rem;
+  padding:3px 10px;border-radius:4px;margin:4px 4px 4px 0;
+  background:rgba(238,0,0,0.1);border:1px solid rgba(238,0,0,0.25);
+  color:var(--rh-red);
+}
+.tool-badge.teal{
+  background:rgba(0,149,150,0.1);border:1px solid rgba(0,149,150,0.25);
+  color:var(--rh-teal);
+}
+.tool-badge.blue{
+  background:rgba(0,102,204,0.1);border:1px solid rgba(0,102,204,0.25);
+  color:var(--rh-blue);
+}
+.tool-badge.purple{
+  background:rgba(103,83,172,0.1);border:1px solid rgba(103,83,172,0.25);
+  color:var(--rh-purple);
+}
+
+/* --- Posture gauge --- */
+.posture-gauge{
+  width:200px;height:200px;position:relative;
+  margin:0 auto 20px;
+}
+.posture-gauge svg{width:100%;height:100%}
+.posture-gauge .gauge-bg{fill:none;stroke:rgba(255,255,255,0.08);stroke-width:12}
+.posture-gauge .gauge-fill{
+  fill:none;stroke:var(--rh-green);stroke-width:12;
+  stroke-linecap:round;
+  transition:stroke-dashoffset 2s cubic-bezier(0.4,0,0.2,1),
+             stroke 0.5s ease;
+}
+.posture-gauge .gauge-text{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  text-align:center;
+}
+.posture-gauge .gauge-score{
+  font-family:var(--font-display);font-size:2.8rem;font-weight:900;
+  color:var(--rh-green);
+}
+.posture-gauge .gauge-label{
+  font-size:0.75rem;color:rgba(255,255,255,0.5);
+  text-transform:uppercase;letter-spacing:1px;
+}
+
+/* --- Architecture slide --- */
+.arch-slide{
+  background:linear-gradient(135deg,#0a0a0a 0%,#0f0f1a 50%,#0a0a0a 100%);
+  color:var(--rh-white);padding:50px 60px;
+  justify-content:center;align-items:center;
+}
+.arch-slide h2{
+  font-family:var(--font-display);font-size:1.8rem;font-weight:700;
+  margin-bottom:28px;text-align:center;
+}
+
+.arch-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:24px;
+  max-width:860px;width:100%;margin-bottom:28px;
+}
+.arch-card{
+  background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
+  border-radius:10px;padding:24px;
+  opacity:0;transform:translateY(16px);
+  transition:all 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+.arch-card.visible{opacity:1;transform:translateY(0)}
+.arch-card .arch-icon{
+  width:44px;height:44px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;margin-bottom:14px;
+}
+.arch-card .arch-title{
+  font-family:var(--font-display);font-weight:700;
+  font-size:1.05rem;margin-bottom:6px;
+}
+.arch-card .arch-detail{
+  font-size:0.85rem;color:rgba(255,255,255,0.55);line-height:1.5;
+}
+.arch-card .arch-detail strong{color:rgba(255,255,255,0.9)}
+
+.tier-row{
+  display:flex;gap:16px;max-width:860px;width:100%;
+  margin-bottom:20px;
+}
+.tier-pill{
+  flex:1;padding:14px 18px;border-radius:8px;text-align:center;
+  opacity:0;transform:scale(0.95);
+  transition:all 0.4s cubic-bezier(0.4,0,0.2,1);
+}
+.tier-pill.visible{opacity:1;transform:scale(1)}
+.tier-pill .tier-name{
+  font-family:var(--font-display);font-weight:700;font-size:0.9rem;
+  margin-bottom:4px;
+}
+.tier-pill .tier-desc{
+  font-size:0.78rem;color:rgba(255,255,255,0.5);
+}
+.tier-pill .tier-count{
+  font-family:var(--font-mono);font-size:1.4rem;font-weight:900;
+  margin-bottom:2px;
+}
+.tier-pill.t1{
+  background:rgba(62,134,53,0.1);border:1px solid rgba(62,134,53,0.3);
+}
+.tier-pill.t1 .tier-count{color:var(--rh-green)}
+.tier-pill.t2{
+  background:rgba(240,171,0,0.1);border:1px solid rgba(240,171,0,0.3);
+}
+.tier-pill.t2 .tier-count{color:var(--rh-orange)}
+.tier-pill.t3{
+  background:rgba(238,0,0,0.1);border:1px solid rgba(238,0,0,0.3);
+}
+.tier-pill.t3 .tier-count{color:var(--rh-red)}
+
+/* --- CVE preview slide --- */
+.cve-slide{
+  background:linear-gradient(135deg,#0a0a0a 0%,#1a0a0a 50%,#0a0a0a 100%);
+  color:var(--rh-white);padding:50px 60px;
+  justify-content:center;align-items:center;
+}
+.cve-slide h2{
+  font-family:var(--font-display);font-size:1.8rem;font-weight:700;
+  margin-bottom:8px;text-align:center;
+}
+.cve-slide .cve-subtitle{
+  font-size:0.95rem;color:rgba(255,255,255,0.5);
+  margin-bottom:28px;text-align:center;
+}
+
+.exploit-chain{
+  display:flex;flex-direction:column;gap:10px;
+  max-width:700px;width:100%;margin-bottom:24px;
+}
+.exploit-step{
+  display:flex;align-items:center;gap:14px;
+  padding:12px 18px;border-radius:8px;
+  font-size:0.9rem;
+  opacity:0;transform:translateX(-16px);
+  transition:all 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+.exploit-step.visible{opacity:1;transform:translateX(0)}
+.exploit-step .step-icon{
+  width:36px;height:36px;border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:15px;flex-shrink:0;
+}
+.exploit-step .step-text{flex:1}
+.exploit-step .step-label{font-weight:600;font-size:0.9rem;margin-bottom:2px}
+.exploit-step .step-detail{font-size:0.78rem;color:rgba(255,255,255,0.5)}
+.exploit-step .step-verdict{
+  font-family:var(--font-mono);font-size:0.72rem;font-weight:600;
+  padding:3px 10px;border-radius:4px;white-space:nowrap;
+}
+
+.exploit-step.blocked{background:rgba(62,134,53,0.08);border:1px solid rgba(62,134,53,0.2)}
+.exploit-step.blocked .step-icon{background:rgba(62,134,53,0.15);color:var(--rh-green)}
+.exploit-step.blocked .step-verdict{background:rgba(62,134,53,0.15);color:var(--rh-green)}
+
+.exploit-step.allowed{background:rgba(240,171,0,0.08);border:1px solid rgba(240,171,0,0.2)}
+.exploit-step.allowed .step-icon{background:rgba(240,171,0,0.15);color:var(--rh-orange)}
+.exploit-step.allowed .step-verdict{background:rgba(240,171,0,0.15);color:var(--rh-orange)}
+
+.containment-score{
+  text-align:center;
+  opacity:0;transition:opacity 0.6s ease;
+}
+.containment-score.visible{opacity:1}
+.containment-score .score-value{
+  font-family:var(--font-display);font-size:2.4rem;font-weight:900;
+  color:var(--rh-green);
+}
+.containment-score .score-label{
+  font-size:0.82rem;color:rgba(255,255,255,0.5);
+}
+
+.bottom-line{
+  max-width:700px;text-align:center;
+  padding:16px 24px;border-radius:8px;
+  background:rgba(238,0,0,0.06);border:1px solid rgba(238,0,0,0.2);
+  font-size:0.88rem;line-height:1.6;color:rgba(255,255,255,0.85);
+  opacity:0;transition:opacity 0.6s ease;
+  margin-top:16px;
+}
+.bottom-line.visible{opacity:1}
+.bottom-line strong{color:var(--rh-white)}
+</style>
+</head>
+<body>
+
+<div class="conf-bar">enforcement-mcp &mdash; User Story Walkthrough</div>
+
+<div class="slides-wrap">
+
+<!-- ============ SLIDE 1: Title ============ -->
+<div class="slide title-slide active">
+  <h1><span class="highlight">enforcement-mcp</span></h1>
+  <div class="subtitle">
+    Structured SELinux, fapolicyd, and MLS policy intelligence for LLM agents.<br>
+    14 diagnosis tools. Zero mutation risk. One MCP server.
+  </div>
+  <div class="context-box">
+    <strong>The problem:</strong> When SELinux or fapolicyd blocks something, today's agents hit a wall.
+    They can't parse AVC denials, can't query policy, and can't distinguish an SELinux block from
+    a fapolicyd denial from a plain DAC permission issue.
+    <br><br>
+    <strong>enforcement-mcp</strong> gives agents the same structured access that experienced RHEL
+    sysadmins rely on &mdash; but as JSON, through MCP, with no risk of misconfiguration.
+  </div>
+</div>
+
+<!-- ============ SLIDE 2: "Why is httpd blocked?" — troubleshoot ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 1</div>
+    <h2>"Why is httpd blocked from serving home directories?"</h2>
+  </div>
+
+  <div class="panel panel-question">
+    <div class="panel-label">Agent asks</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        A developer reports httpd returns 403 when serving <strong>/home/jsmith/public_html</strong>.
+        The agent calls the composite <strong>troubleshoot</strong> tool to find the root cause.
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge">diagnosis.troubleshoot</span>
+    </div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">Input</span>{
+  <span class="json-key">"symptom"</span>: <span class="json-str">"httpd can't serve /home/jsmith/public_html"</span>,
+  <span class="json-key">"process"</span>: <span class="json-str">"httpd"</span>,
+  <span class="json-key">"path"</span>: <span class="json-str">"/home/jsmith/public_html"</span>
+}</div>
+  </div>
+
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
+
+    <div class="json-block" data-delay="700">
+      <span class="json-label output-label">Output</span>{
+  <span class="json-key">"root_cause"</span>: <span class="json-str">"selinux"</span>,
+  <span class="json-key">"confidence"</span>: <span class="json-str">"high"</span>,
+  <span class="json-key">"denials_found"</span>: [{
+    <span class="json-key">"source"</span>: <span class="json-str">"httpd_t"</span>,
+    <span class="json-key">"target"</span>: <span class="json-str">"user_home_t"</span>,
+    <span class="json-key">"permission"</span>: <span class="json-str">"read"</span>,
+    <span class="json-key">"class"</span>: <span class="json-str">"file"</span>
+  }],
+  <span class="json-key">"checked_clear"</span>: [<span class="json-str">"dac"</span>, <span class="json-str">"fapolicyd"</span>, <span class="json-str">"capabilities"</span>],
+  <span class="json-key">"suggested_fixes"</span>: [
+    {<span class="json-key">"fix"</span>: <span class="json-str">"setsebool -P httpd_enable_homedirs on"</span>,
+     <span class="json-key">"scope"</span>: <span class="json-str">"narrow"</span>, <span class="json-key">"risk"</span>: <span class="json-num">15</span>},
+    {<span class="json-key">"fix"</span>: <span class="json-str">"restorecon -Rv /home/jsmith/public_html"</span>,
+     <span class="json-key">"scope"</span>: <span class="json-str">"targeted"</span>, <span class="json-key">"risk"</span>: <span class="json-num">5</span>}
+  ]
+}</div>
+
+    <div class="info-card" data-delay="1200">
+      <div class="info-title">Key design: proves the negative</div>
+      <div class="info-detail">
+        <strong>checked_clear</strong> shows what was ruled out &mdash; DAC, fapolicyd, capabilities.
+        When enforcement isn't the cause, the tool says so and suggests where else to look.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SLIDE 3: "What boolean controls this?" — boolean_list + denial_explain ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 2</div>
+    <h2>"What boolean controls httpd home directory access?"</h2>
+  </div>
+
+  <div class="panel panel-question">
+    <div class="panel-label">Agent investigates</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        The agent knows SELinux blocked the request. Now it needs to understand
+        <strong>which boolean</strong> controls the behavior and <strong>why</strong> the denial
+        happened, before recommending a fix.
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge">diagnosis.boolean_list</span>
+      <span class="tool-badge teal">diagnosis.denial_explain</span>
+    </div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">boolean_list input</span>{
+  <span class="json-key">"filter"</span>: <span class="json-str">"httpd"</span>
+}</div>
+
+    <div class="json-block" data-delay="600" style="margin-top:12px">
+      <span class="json-label input-label">denial_explain input</span>{
+  <span class="json-key">"source"</span>: <span class="json-str">"httpd_t"</span>,
+  <span class="json-key">"target"</span>: <span class="json-str">"user_home_dir_t"</span>,
+  <span class="json-key">"class"</span>: <span class="json-str">"dir"</span>,
+  <span class="json-key">"permission"</span>: <span class="json-str">"read"</span>
+}</div>
+  </div>
+
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
+
+    <div class="json-block" data-delay="500">
+      <span class="json-label output-label">boolean_list output</span>[{
+  <span class="json-key">"name"</span>: <span class="json-str">"httpd_enable_homedirs"</span>,
+  <span class="json-key">"state"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"default"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"description"</span>: <span class="json-str">"Allow httpd to read user home directories"</span>
+}, {
+  <span class="json-key">"name"</span>: <span class="json-str">"httpd_read_user_content"</span>,
+  <span class="json-key">"state"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"default"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"description"</span>: <span class="json-str">"Allow httpd to read generic user content"</span>
+}]</div>
+
+    <div class="json-block" data-delay="900" style="margin-top:12px">
+      <span class="json-label output-label">denial_explain output</span>{
+  <span class="json-key">"cause"</span>: <span class="json-str">"boolean"</span>,
+  <span class="json-key">"boolean_needed"</span>: <span class="json-str">"httpd_enable_homedirs"</span>,
+  <span class="json-key">"current_state"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"fix"</span>: <span class="json-str">"setsebool -P httpd_enable_homedirs on"</span>,
+  <span class="json-key">"persistent"</span>: <span class="json-bool">true</span>
+}</div>
+  </div>
+</div>
+
+<!-- ============ SLIDE 4: "Is this binary trusted?" — fapolicyd_trust_check ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 3</div>
+    <h2>"Is this binary trusted by fapolicyd?"</h2>
+  </div>
+
+  <div class="panel panel-question">
+    <div class="panel-label">Agent checks trust</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        A custom-built binary at <strong>/opt/myapp/bin/worker</strong> can't execute.
+        The agent checks whether fapolicyd trusts it before recommending any changes.
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge teal">diagnosis.fapolicyd_trust_check</span>
+    </div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">Input</span>{
+  <span class="json-key">"path"</span>: <span class="json-str">"/opt/myapp/bin/worker"</span>
+}</div>
+
+    <div class="info-card" data-delay="800">
+      <div class="info-title">What the agent learns</div>
+      <div class="info-detail">
+        The binary isn't from an RPM and hasn't been added to ancillary trust.
+        fapolicyd will <strong>deny execution</strong>. The fix: add it to ancillary trust
+        (Tier 3 manage tool) or verify the RPM that should provide it.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
+
+    <div class="json-block" data-delay="500">
+      <span class="json-label output-label">Output</span>{
+  <span class="json-key">"path"</span>: <span class="json-str">"/opt/myapp/bin/worker"</span>,
+  <span class="json-key">"trusted"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"reason"</span>: <span class="json-str">"not_in_trust_db"</span>,
+  <span class="json-key">"rpm_owned"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"ancillary_trust"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"sha256"</span>: <span class="json-str">"a1b2c3d4...f8e9"</span>,
+  <span class="json-key">"would_execute"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"matching_rule"</span>: <span class="json-num">10</span>,
+  <span class="json-key">"rule_decision"</span>: <span class="json-str">"deny_audit"</span>
+}</div>
+
+    <div class="json-block" data-delay="1000" style="margin-top:12px">
+      <span class="json-label output-label">Compare: a trusted binary</span>{
+  <span class="json-key">"path"</span>: <span class="json-str">"/usr/bin/python3"</span>,
+  <span class="json-key">"trusted"</span>: <span class="json-bool">true</span>,
+  <span class="json-key">"reason"</span>: <span class="json-str">"rpm_db"</span>,
+  <span class="json-key">"rpm_owned"</span>: <span class="json-bool">true</span>,
+  <span class="json-key">"sha256"</span>: <span class="json-str">"e5f6a7b8...c2d1"</span>,
+  <span class="json-key">"would_execute"</span>: <span class="json-bool">true</span>,
+  <span class="json-key">"matching_rule"</span>: <span class="json-num">3</span>,
+  <span class="json-key">"rule_decision"</span>: <span class="json-str">"allow"</span>
+}</div>
+  </div>
+</div>
+
+<!-- ============ SLIDE 5: "What's the security posture?" — host_posture ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 4</div>
+    <h2>"What's the overall security posture of this host?"</h2>
+  </div>
+
+  <div class="panel panel-question">
+    <div class="panel-label">Agent assesses</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        Before deploying a workload, the agent checks the host's enforcement posture.
+        A single call returns SELinux mode, fapolicyd status, MLS config, and a
+        <strong>0-100 score</strong> with specific findings that reduce it.
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge blue">diagnosis.host_posture</span>
+    </div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">Input</span>{}</div>
+
+    <div class="info-card" data-delay="600">
+      <div class="info-title">Score breakdown</div>
+      <div class="info-detail">
+        <strong>100</strong> = enforcing + fapolicyd active + no recent denials + no permissive domains.<br>
+        Each finding deducts points: permissive mode (-40), fapolicyd inactive (-20),
+        recent AVC denials (-10), non-default booleans (-5 each).
+      </div>
+    </div>
+  </div>
+
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
+
+    <div class="posture-gauge" data-delay="400">
+      <svg viewBox="0 0 200 200">
+        <circle class="gauge-bg" cx="100" cy="100" r="85"
+                stroke-dasharray="534" stroke-dashoffset="0"
+                transform="rotate(-90 100 100)"/>
+        <circle class="gauge-fill" cx="100" cy="100" r="85"
+                stroke-dasharray="534" stroke-dashoffset="534"
+                transform="rotate(-90 100 100)"
+                id="gaugeArc"/>
+      </svg>
+      <div class="gauge-text">
+        <div class="gauge-score" id="gaugeScore">0</div>
+        <div class="gauge-label">Posture Score</div>
+      </div>
+    </div>
+
+    <div class="json-block" data-delay="800">
+      <span class="json-label output-label">Output summary</span>{
+  <span class="json-key">"posture_score"</span>: <span class="json-num">100</span>,
+  <span class="json-key">"selinux"</span>: {
+    <span class="json-key">"mode"</span>: <span class="json-str">"enforcing"</span>,
+    <span class="json-key">"policy"</span>: <span class="json-str">"targeted"</span>,
+    <span class="json-key">"denials_24h"</span>: <span class="json-num">0</span>,
+    <span class="json-key">"custom_modules"</span>: <span class="json-num">0</span>
+  },
+  <span class="json-key">"fapolicyd"</span>: {
+    <span class="json-key">"active"</span>: <span class="json-bool">true</span>,
+    <span class="json-key">"rules"</span>: <span class="json-num">15</span>,
+    <span class="json-key">"trust_entries"</span>: <span class="json-num">48231</span>
+  },
+  <span class="json-key">"mls"</span>: {
+    <span class="json-key">"enabled"</span>: <span class="json-bool">true</span>,
+    <span class="json-key">"users_mapped"</span>: <span class="json-num">3</span>
+  },
+  <span class="json-key">"findings"</span>: []
+}</div>
+  </div>
+</div>
+
+<!-- ============ SLIDE 6: CVE Containment (Phase 2 preview) ============ -->
+<div class="slide cve-slide">
+  <h2>CVE Containment Assessment</h2>
+  <div class="cve-subtitle">Phase 2 &mdash; Maps exploit chains against current policy</div>
+
+  <div style="margin-bottom:16px;text-align:center">
+    <span class="tool-badge purple">diagnosis.cve_exposure</span>
+    <span class="tool-badge">diagnosis.active_containments</span>
+  </div>
+
+  <div class="exploit-chain">
+    <div class="exploit-step blocked" data-delay="400">
+      <div class="step-icon">&#x1f6e1;</div>
+      <div class="step-text">
+        <div class="step-label">1. Initial Access &mdash; T1190</div>
+        <div class="step-detail">Exploit public-facing httpd vulnerability</div>
+      </div>
+      <div class="step-verdict">ALLOWED</div>
+    </div>
+    <div class="exploit-step blocked" data-delay="600">
+      <div class="step-icon">&#x1f512;</div>
+      <div class="step-text">
+        <div class="step-label">2. Payload Drop &mdash; T1105</div>
+        <div class="step-detail">Write binary to /tmp &rarr; fapolicyd denies untrusted exec</div>
+      </div>
+      <div class="step-verdict">BLOCKED</div>
+    </div>
+    <div class="exploit-step blocked" data-delay="800">
+      <div class="step-icon">&#x1f512;</div>
+      <div class="step-text">
+        <div class="step-label">3. Lateral Movement &mdash; T1021</div>
+        <div class="step-detail">httpd_t can't connect to SSH port &rarr; SELinux denies</div>
+      </div>
+      <div class="step-verdict">BLOCKED</div>
+    </div>
+    <div class="exploit-step blocked" data-delay="1000">
+      <div class="step-icon">&#x1f512;</div>
+      <div class="step-text">
+        <div class="step-label">4. Data Exfiltration &mdash; T1048</div>
+        <div class="step-detail">httpd_t confined to http/https ports &rarr; no DNS tunnel</div>
+      </div>
+      <div class="step-verdict">BLOCKED</div>
+    </div>
+  </div>
+
+  <div class="containment-score" data-delay="1400">
+    <div class="score-value">75% contained</div>
+    <div class="score-label">3 of 4 exploit chain steps blocked by current policy</div>
+  </div>
+
+  <div class="bottom-line" data-delay="1800">
+    <strong>Phase 2</strong> maps each CVE's exploit requirements against the live SELinux + fapolicyd
+    policy, using the Red Hat Security Data API directly. No internal tooling dependency &mdash;
+    works identically in customer environments.
+  </div>
+</div>
+
+<!-- ============ SLIDE 7: Architecture ============ -->
+<div class="slide arch-slide">
+  <h2>Architecture</h2>
+
+  <div class="arch-grid">
+    <div class="arch-card" data-delay="300">
+      <div class="arch-icon" style="background:rgba(0,102,204,0.15);color:var(--rh-blue)">&#x1f310;</div>
+      <div class="arch-title">SSH Proxy Mode</div>
+      <div class="arch-detail">
+        <strong>Zero-install diagnosis.</strong> Agent connects to any RHEL host via SSH.
+        Runs standard CLI commands (ausearch, getsebool, fapolicyd-cli).
+        No packages to install, no root required for Tier 1 tools.
+      </div>
+    </div>
+    <div class="arch-card" data-delay="500">
+      <div class="arch-icon" style="background:rgba(238,0,0,0.15);color:var(--rh-red)">&#x1f4e6;</div>
+      <div class="arch-title">Container Sidecar Mode</div>
+      <div class="arch-detail">
+        <strong>Full management with identity.</strong> Runs as a container alongside the workload.
+        RHHI base image (near-zero CVE). Enables Tier 3 mutating operations
+        with per-call risk assessment.
+      </div>
+    </div>
+    <div class="arch-card" data-delay="700">
+      <div class="arch-icon" style="background:rgba(0,149,150,0.15);color:var(--rh-teal)">&#x2699;&#xfe0f;</div>
+      <div class="arch-title">FastMCP + Paramiko</div>
+      <div class="arch-detail">
+        Built on <strong>FastMCP 2.x</strong> (Python MCP SDK) with async SSH backend
+        via Paramiko. Pydantic 2.x models for all structured I/O.
+        85 tests against real RHEL 9.8 CLI fixtures.
+      </div>
+    </div>
+    <div class="arch-card" data-delay="900">
+      <div class="arch-icon" style="background:rgba(103,83,172,0.15);color:var(--rh-purple)">&#x1f50d;</div>
+      <div class="arch-title">CVE Data &mdash; Direct API</div>
+      <div class="arch-detail">
+        CVE intelligence via <strong>Red Hat Security Data API</strong> (Hydra, no auth).
+        No internal tooling dependency. Optional Insights MCP for
+        affected-host correlation on registered systems.
+      </div>
+    </div>
+  </div>
+
+  <div class="tier-row">
+    <div class="tier-pill t1" data-delay="1100">
+      <div class="tier-count">14</div>
+      <div class="tier-name">Tier 1: Diagnosis</div>
+      <div class="tier-desc">No root &middot; No risk &middot; Read-only</div>
+    </div>
+    <div class="tier-pill t2" data-delay="1300">
+      <div class="tier-count">2</div>
+      <div class="tier-name">Tier 2: Elevated</div>
+      <div class="tier-desc">Root required &middot; Read-only</div>
+    </div>
+    <div class="tier-pill t3" data-delay="1500">
+      <div class="tier-count">10</div>
+      <div class="tier-name">Tier 3: Manage</div>
+      <div class="tier-desc">Root + confirm &middot; Risk-assessed</div>
+    </div>
+  </div>
+
+  <div class="bottom-line" data-delay="1700">
+    <strong>Phase 1 shipped:</strong> 14 diagnosis tools, 85 tests, SSH proxy backend.
+    Phases 2-4: CVE containment, management tier, Rust sidecar for audit streaming.
+  </div>
+</div>
+
+</div><!-- /slides-wrap -->
+
+<!-- --- Navigation --- -->
+<div class="nav-bar">
+  <button class="nav-btn" id="prevBtn" disabled>&#x2190; Prev</button>
+  <span class="slide-counter"><span id="currentSlide">1</span> / <span id="totalSlides">7</span></span>
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="nav-dots" id="navDots"></div>
+  <button class="nav-btn" id="nextBtn">Next &#x2192;</button>
+</div>
+
+<div class="key-hint"><kbd>&#x2190;</kbd> <kbd>&#x2192;</kbd> or click to navigate</div>
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  let animating = false;
+
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const currentEl = document.getElementById('currentSlide');
+  const totalEl = document.getElementById('totalSlides');
+  const progressFill = document.getElementById('progressFill');
+  const navDots = document.getElementById('navDots');
+
+  totalEl.textContent = total;
+
+  for(let i = 0; i < total; i++){
+    const dot = document.createElement('button');
+    dot.setAttribute('aria-label', 'Go to slide ' + (i+1));
+    if(i === 0) dot.classList.add('active');
+    dot.addEventListener('click', () => goTo(i));
+    navDots.appendChild(dot);
+  }
+
+  function updateUI(){
+    currentEl.textContent = current + 1;
+    progressFill.style.width = ((current + 1) / total * 100) + '%';
+    prevBtn.disabled = current === 0;
+    nextBtn.disabled = current === total - 1;
+    navDots.querySelectorAll('button').forEach((d,i) => {
+      d.classList.toggle('active', i === current);
+    });
+  }
+
+  function animateGauge(){
+    const arc = document.getElementById('gaugeArc');
+    const scoreEl = document.getElementById('gaugeScore');
+    if(!arc || !scoreEl) return;
+    const circumference = 534;
+    const target = 100;
+    arc.style.strokeDashoffset = circumference - (circumference * target / 100);
+
+    let frame = 0;
+    const totalFrames = 60;
+    function tick(){
+      frame++;
+      const progress = Math.min(frame / totalFrames, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      scoreEl.textContent = Math.round(target * ease);
+      if(progress < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function animateSlide(slide){
+    slide.querySelectorAll('.json-block[data-delay]').forEach(block => {
+      const delay = parseInt(block.dataset.delay) || 400;
+      setTimeout(() => block.classList.add('visible'), delay);
+    });
+    slide.querySelectorAll('.info-card[data-delay]').forEach(card => {
+      const delay = parseInt(card.dataset.delay) || 600;
+      setTimeout(() => card.classList.add('visible'), delay);
+    });
+    slide.querySelectorAll('.exploit-step').forEach(step => {
+      const delay = parseInt(step.dataset.delay) || 400;
+      setTimeout(() => step.classList.add('visible'), delay);
+    });
+    slide.querySelectorAll('.containment-score').forEach(sc => {
+      const delay = parseInt(sc.dataset.delay) || 1400;
+      setTimeout(() => sc.classList.add('visible'), delay);
+    });
+    slide.querySelectorAll('.arch-card').forEach(card => {
+      const delay = parseInt(card.dataset.delay) || 400;
+      setTimeout(() => card.classList.add('visible'), delay);
+    });
+    slide.querySelectorAll('.tier-pill').forEach(pill => {
+      const delay = parseInt(pill.dataset.delay) || 1000;
+      setTimeout(() => pill.classList.add('visible'), delay);
+    });
+    slide.querySelectorAll('.bottom-line').forEach(bl => {
+      const delay = parseInt(bl.dataset.delay) || 1200;
+      setTimeout(() => bl.classList.add('visible'), delay);
+    });
+    if(slide.querySelector('.posture-gauge')){
+      const delay = parseInt(slide.querySelector('.posture-gauge').dataset.delay) || 400;
+      setTimeout(() => animateGauge(), delay);
+    }
+  }
+
+  function resetSlide(slide){
+    slide.querySelectorAll('.json-block').forEach(b => b.classList.remove('visible'));
+    slide.querySelectorAll('.info-card[data-delay]').forEach(c => c.classList.remove('visible'));
+    slide.querySelectorAll('.exploit-step').forEach(s => s.classList.remove('visible'));
+    slide.querySelectorAll('.containment-score').forEach(s => s.classList.remove('visible'));
+    slide.querySelectorAll('.arch-card').forEach(c => c.classList.remove('visible'));
+    slide.querySelectorAll('.tier-pill').forEach(p => p.classList.remove('visible'));
+    slide.querySelectorAll('.bottom-line').forEach(b => b.classList.remove('visible'));
+    const arc = document.getElementById('gaugeArc');
+    const scoreEl = document.getElementById('gaugeScore');
+    if(arc) arc.style.strokeDashoffset = '534';
+    if(scoreEl) scoreEl.textContent = '0';
+  }
+
+  function goTo(idx){
+    if(idx === current || animating || idx < 0 || idx >= total) return;
+    animating = true;
+
+    const oldSlide = slides[current];
+    const newSlide = slides[idx];
+
+    oldSlide.classList.add('exiting');
+    oldSlide.classList.remove('active');
+
+    resetSlide(newSlide);
+    newSlide.classList.add('active');
+
+    current = idx;
+    updateUI();
+
+    setTimeout(() => {
+      oldSlide.classList.remove('exiting');
+      animateSlide(newSlide);
+      animating = false;
+    }, 600);
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(current + 1); }
+    if(e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1); }
+    if(e.key === 'Home') { e.preventDefault(); goTo(0); }
+    if(e.key === 'End') { e.preventDefault(); goTo(total - 1); }
+  });
+
+  prevBtn.addEventListener('click', () => goTo(current - 1));
+  nextBtn.addEventListener('click', () => goTo(current + 1));
+
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if(Math.abs(dx) > 50){
+      if(dx < 0) goTo(current + 1);
+      else goTo(current - 1);
+    }
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  const startSlide = parseInt(params.get('slide')) || 0;
+  if(startSlide > 0 && startSlide < total){
+    slides.forEach(s => {
+      s.style.transition = 'none';
+      s.classList.remove('active');
+    });
+    slides[startSlide].classList.add('active');
+    current = startSlide;
+    const target = slides[current];
+    target.querySelectorAll('.json-block').forEach(b => b.classList.add('visible'));
+    target.querySelectorAll('.info-card[data-delay]').forEach(c => c.classList.add('visible'));
+    target.querySelectorAll('.exploit-step').forEach(s => s.classList.add('visible'));
+    target.querySelectorAll('.containment-score').forEach(s => s.classList.add('visible'));
+    target.querySelectorAll('.arch-card').forEach(c => c.classList.add('visible'));
+    target.querySelectorAll('.tier-pill').forEach(p => p.classList.add('visible'));
+    target.querySelectorAll('.bottom-line').forEach(b => b.classList.add('visible'));
+    requestAnimationFrame(() => {
+      slides.forEach(s => s.style.transition = '');
+    });
+  }
+
+  updateUI();
+})();
+</script>
+
+</body>
+</html>
