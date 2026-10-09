@@ -23,7 +23,7 @@ uv run enforcement-mcp
 # Container deployment
 podman run -i --rm \
   -e ENFORCEMENT_MCP_HOST=myhost.example.com \
-  -v ~/.ssh/id_ed25519:/app/.ssh/id_ed25519:ro \
+  -v ~/.ssh/id_ed25519:/opt/app-root/src/.ssh/id_ed25519:ro \
   quay.io/rhel-security/enforcement-mcp
 ```
 
@@ -34,7 +34,7 @@ podman run -i --rm \
 | `ENFORCEMENT_MCP_HOST` | Yes | — | Target RHEL host |
 | `ENFORCEMENT_MCP_USER` | No | `root` | SSH user |
 | `ENFORCEMENT_MCP_PORT` | No | `22` | SSH port |
-| `ENFORCEMENT_MCP_KEY_FILE` | No | `~/.ssh/id_rsa` | SSH private key |
+| `ENFORCEMENT_MCP_KEY_FILE` | No | — | SSH private key (uses SSH agent if unset) |
 
 ## Tools
 
@@ -132,6 +132,8 @@ Supports OAuth 2.0 (JWT) and SPIFFE workload identity.
 | `ENFORCEMENT_MCP_OAUTH_AUDIENCE` | — | Expected JWT audience |
 | `ENFORCEMENT_MCP_OAUTH_JWKS_URI` | — | JWKS endpoint for signature verification |
 | `ENFORCEMENT_MCP_SPIFFE_TRUST_DOMAIN` | — | SPIFFE trust domain |
+| `ENFORCEMENT_MCP_SPIFFE_SOCKET` | — | SPIFFE Workload API socket path |
+| `ENFORCEMENT_MCP_SSH_HOST_KEY_POLICY` | `warn` | SSH host key policy: `warn`, `reject`, or `auto` |
 
 ### Roles
 

@@ -278,6 +278,94 @@ Roles (`admin`, `operator`, `viewer`, `containment`) control which tools
 each caller can access. All invocations are logged to an audit trail on the
 remote host.
 
+## Sysadmin workflow: laptop + Claude/Cursor
+
+enforcement-mcp runs **on your laptop** and SSH-proxies to whatever RHEL
+host you're managing. Nothing gets installed on the target server — your
+existing SSH key is all you need.
+
+### One-time setup
+
+```bash
+# Install (pick one)
+uvx enforcement-mcp                              # fastest
+pip install enforcement-mcp                       # traditional
+podman pull quay.io/rhel-security/enforcement-mcp # container
+```
+
+Add to your MCP client config:
+
+**Claude Code** (`~/.claude/settings.json` or project `.mcp.json`):
+
+```json
+{
+  "enforcement-mcp": {
+    "command": "uvx",
+    "args": ["enforcement-mcp"],
+    "env": {
+      "ENFORCEMENT_MCP_HOST": "webserver01.example.com"
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "enforcement-mcp": {
+      "command": "uvx",
+      "args": ["enforcement-mcp"],
+      "env": {
+        "ENFORCEMENT_MCP_HOST": "webserver01.example.com"
+      }
+    }
+  }
+}
+```
+
+### Daily use
+
+Talk to your AI assistant in natural language:
+
+| You say | What happens |
+|---------|-------------|
+| "Why can't httpd serve files from /home?" | `troubleshoot` → finds AVC denial → `denial_explain` → suggests boolean fix |
+| "Show me the security posture" | `host_posture` → 0-100 score with findings |
+| "Are we exposed to CVE-2024-6387?" | `cve_exposure` → ATT&CK chain mapped against current policy |
+| "Enable that boolean, it's low risk" | `set_boolean` with `dry_run=false` → applied + verified |
+| "New binary in /opt won't execute" | `fapolicyd_trust_check` → not trusted → `fapolicyd_trust_add` |
+
+### Switching hosts
+
+Change the target by updating the env var — no reconfiguration needed:
+
+```bash
+export ENFORCEMENT_MCP_HOST=dbserver02.example.com
+```
+
+Or run multiple instances for different hosts in parallel.
+
+### Offline mode: log aggregator integration
+
+If your denial logs are already in Splunk, ELK, or Loki, you don't need
+SSH at all. Pull the raw text from your aggregator and pass it directly:
+
+```json
+{
+  "tool": "diagnosis.parse_denials",
+  "arguments": {
+    "raw_text": "type=AVC msg=audit(...): avc: denied { read } for ..."
+  }
+}
+```
+
+Works with `avc_denials(raw_text=...)`, `fapolicyd_denials(raw_text=...)`,
+and `troubleshoot(raw_avc_text=...)` too. An agent using both a Splunk MCP
+and enforcement-mcp can pull denials from the aggregator and analyze them
+without ever touching the target host.
+
 ## Safety model
 
 - **Diagnosis tools** run without root and never modify the system

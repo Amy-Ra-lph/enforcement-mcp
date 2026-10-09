@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-09
 **Methodology:** STRIDE + ATT&CK mapping
-**Scope:** enforcement-mcp v0.4.0 (28 tools, SSH-proxy mode)
+**Scope:** enforcement-mcp v0.4.0 (29 tools, SSH-proxy mode)
 **Attacker models:** Malicious MCP client, compromised agent, network attacker
 
 ## Architecture Overview
