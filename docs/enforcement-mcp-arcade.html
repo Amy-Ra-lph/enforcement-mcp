@@ -397,7 +397,7 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
   <h1><span class="highlight">enforcement-mcp</span></h1>
   <div class="subtitle">
     Structured SELinux, fapolicyd, and MLS policy intelligence for LLM agents.<br>
-    14 diagnosis tools. Zero mutation risk. One MCP server.
+    19 tools across 3 tiers. CVE containment + risk scoring. One MCP server.
   </div>
   <div class="context-box">
     <strong>The problem:</strong> When SELinux or fapolicyd blocks something, today's agents hit a wall.
@@ -681,64 +681,236 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
   </div>
 </div>
 
-<!-- ============ SLIDE 6: CVE Containment (Phase 2 preview) ============ -->
-<div class="slide cve-slide">
-  <h2>CVE Containment Assessment</h2>
-  <div class="cve-subtitle">Phase 2 &mdash; Maps exploit chains against current policy</div>
-
-  <div style="margin-bottom:16px;text-align:center">
-    <span class="tool-badge purple">diagnosis.cve_exposure</span>
-    <span class="tool-badge">diagnosis.active_containments</span>
+<!-- ============ SLIDE 6: CVE Exposure Analysis ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 5 &mdash; Phase 2</div>
+    <h2>"Is our sshd policy blocking the CVE-2024-6387 exploit chain?"</h2>
   </div>
 
-  <div class="exploit-chain">
-    <div class="exploit-step blocked" data-delay="400">
-      <div class="step-icon">&#x1f6e1;</div>
-      <div class="step-text">
-        <div class="step-label">1. Initial Access &mdash; T1190</div>
-        <div class="step-detail">Exploit public-facing httpd vulnerability</div>
+  <div class="panel panel-question">
+    <div class="panel-label">Agent asks</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        CVE-2024-6387 (regreSSHion) was just published. Before patching,
+        the agent checks whether current SELinux policy already blocks the
+        <strong>exploit chain</strong> mapped via ATT&amp;CK techniques.
       </div>
-      <div class="step-verdict">ALLOWED</div>
     </div>
-    <div class="exploit-step blocked" data-delay="600">
-      <div class="step-icon">&#x1f512;</div>
-      <div class="step-text">
-        <div class="step-label">2. Payload Drop &mdash; T1105</div>
-        <div class="step-detail">Write binary to /tmp &rarr; fapolicyd denies untrusted exec</div>
-      </div>
-      <div class="step-verdict">BLOCKED</div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge purple">diagnosis.cve_exposure</span>
     </div>
-    <div class="exploit-step blocked" data-delay="800">
-      <div class="step-icon">&#x1f512;</div>
-      <div class="step-text">
-        <div class="step-label">3. Lateral Movement &mdash; T1021</div>
-        <div class="step-detail">httpd_t can't connect to SSH port &rarr; SELinux denies</div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">Input</span>{
+  <span class="json-key">"cve"</span>: <span class="json-str">"CVE-2024-6387"</span>
+}</div>
+
+    <div class="info-card" data-delay="800">
+      <div class="info-title">How it works</div>
+      <div class="info-detail">
+        Fetches CVE data from the <strong>Red Hat Security Data API</strong> (direct, no auth).
+        Maps the CWE to ATT&amp;CK techniques, then checks <strong>sesearch</strong> for each
+        required permission in the exploit chain.
       </div>
-      <div class="step-verdict">BLOCKED</div>
-    </div>
-    <div class="exploit-step blocked" data-delay="1000">
-      <div class="step-icon">&#x1f512;</div>
-      <div class="step-text">
-        <div class="step-label">4. Data Exfiltration &mdash; T1048</div>
-        <div class="step-detail">httpd_t confined to http/https ports &rarr; no DNS tunnel</div>
-      </div>
-      <div class="step-verdict">BLOCKED</div>
     </div>
   </div>
 
-  <div class="containment-score" data-delay="1400">
-    <div class="score-value">75% contained</div>
-    <div class="score-label">3 of 4 exploit chain steps blocked by current policy</div>
-  </div>
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
 
-  <div class="bottom-line" data-delay="1800">
-    <strong>Phase 2</strong> maps each CVE's exploit requirements against the live SELinux + fapolicyd
-    policy, using the Red Hat Security Data API directly. No internal tooling dependency &mdash;
-    works identically in customer environments.
+    <div class="json-block" data-delay="500">
+      <span class="json-label output-label">Output</span>{
+  <span class="json-key">"cve"</span>: {
+    <span class="json-key">"cve_id"</span>: <span class="json-str">"CVE-2024-6387"</span>,
+    <span class="json-key">"severity"</span>: <span class="json-str">"important"</span>,
+    <span class="json-key">"cvss3_score"</span>: <span class="json-num">8.1</span>
+  },
+  <span class="json-key">"exploit_chain"</span>: [
+    {<span class="json-key">"technique"</span>: <span class="json-str">"T1068 Priv Escalation"</span>,
+     <span class="json-key">"blocked"</span>: <span class="json-bool">true</span>,
+     <span class="json-key">"rule"</span>: <span class="json-str">"No allow: sshd_t &rarr; kernel_t"</span>},
+    {<span class="json-key">"technique"</span>: <span class="json-str">"T1059.004 Shell Exec"</span>,
+     <span class="json-key">"blocked"</span>: <span class="json-bool">true</span>,
+     <span class="json-key">"rule"</span>: <span class="json-str">"No allow: sshd_t &rarr; shell_exec_t"</span>},
+    {<span class="json-key">"technique"</span>: <span class="json-str">"T1078 Valid Accounts"</span>,
+     <span class="json-key">"blocked"</span>: <span class="json-bool">false</span>,
+     <span class="json-key">"rule"</span>: <span class="json-null">null</span>}
+  ],
+  <span class="json-key">"containment_score"</span>: <span class="json-num">66</span>,
+  <span class="json-key">"blocked_steps"</span>: <span class="json-num">2</span>,
+  <span class="json-key">"total_steps"</span>: <span class="json-num">3</span>,
+  <span class="json-key">"residual_risk"</span>: <span class="json-str">"medium"</span>
+}</div>
+
+    <div class="info-card" data-delay="1100">
+      <div class="info-title">Containment: 66%</div>
+      <div class="info-detail">
+        2 of 3 exploit steps blocked. <strong>sshd_t</strong> can read <strong>shadow_t</strong>
+        (needed for auth), so credential access isn't fully blocked. The agent can now use
+        <strong>manage.cve_contain</strong> to close the gap.
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- ============ SLIDE 7: Architecture ============ -->
+<!-- ============ SLIDE 7: Risk Assessment ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 6 &mdash; Phase 2</div>
+    <h2>"What's the risk of enabling httpd_enable_homedirs?"</h2>
+  </div>
+
+  <div class="panel panel-question">
+    <div class="panel-label">Agent asks</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        The agent wants to fix the httpd home directory denial by toggling
+        <strong>httpd_enable_homedirs</strong>. Before doing it, it runs
+        <strong>assess_risk</strong> to understand blast radius and reversibility.
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge">manage.assess_risk</span>
+    </div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">Input</span>{
+  <span class="json-key">"change_type"</span>: <span class="json-str">"boolean"</span>,
+  <span class="json-key">"name"</span>: <span class="json-str">"httpd_enable_homedirs"</span>,
+  <span class="json-key">"value"</span>: <span class="json-bool">true</span>
+}</div>
+
+    <div class="info-card" data-delay="700">
+      <div class="info-title">Mandatory pre-mutation gate</div>
+      <div class="info-detail">
+        Every Tier 3 (manage) tool runs <strong>assess_risk</strong> as step 1.
+        No mutation without a risk score. The agent can also call it directly
+        for <strong>"what if"</strong> analysis.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
+
+    <div class="json-block" data-delay="500">
+      <span class="json-label output-label">Output</span>{
+  <span class="json-key">"risk_score"</span>: <span class="json-num">18</span>,
+  <span class="json-key">"risk_level"</span>: <span class="json-str">"low"</span>,
+  <span class="json-key">"blast_radius"</span>: {
+    <span class="json-key">"rules_unlocked"</span>: <span class="json-num">3</span>,
+    <span class="json-key">"domains_affected"</span>: [<span class="json-str">"httpd_t"</span>]
+  },
+  <span class="json-key">"attack_surface_delta"</span>: {
+    <span class="json-key">"permissions_granted"</span>: [
+      <span class="json-str">"read"</span>, <span class="json-str">"getattr"</span>, <span class="json-str">"search"</span>]
+  },
+  <span class="json-key">"reversibility"</span>: {
+    <span class="json-key">"method"</span>: <span class="json-str">"setsebool -P httpd_enable_homedirs off"</span>,
+    <span class="json-key">"difficulty"</span>: <span class="json-str">"easy"</span>
+  },
+  <span class="json-key">"recommendation"</span>: <span class="json-str">"proceed"</span>
+}</div>
+
+    <div class="info-card" data-delay="1000">
+      <div class="info-title">Risk scoring factors</div>
+      <div class="info-detail">
+        <strong>Blast radius</strong> (1 type vs many) &middot;
+        <strong>Permission severity</strong> (read=low, exec=high) &middot;
+        <strong>Target sensitivity</strong> (tmp_t=low, shadow_t=critical) &middot;
+        <strong>Reversibility</strong> (boolean=easy, MLS root range=dangerous) &middot;
+        <strong>Lockout potential</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SLIDE 8: CVE Containment ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 7 &mdash; Phase 2</div>
+    <h2>"Generate containment for CVE-2024-6387 while we wait for the patch"</h2>
+  </div>
+
+  <div class="panel panel-question">
+    <div class="panel-label">Agent requests</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        The patch isn't available yet. The agent generates
+        <strong>targeted containment</strong> &mdash; a CIL module that blocks
+        only the exploit-specific permissions, with multiple strategy options
+        and embedded risk assessment.
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge">manage.cve_contain</span>
+    </div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">Input</span>{
+  <span class="json-key">"cve"</span>: <span class="json-str">"CVE-2024-6387"</span>,
+  <span class="json-key">"strategy"</span>: <span class="json-str">"all"</span>
+}</div>
+
+    <div class="info-card" data-delay="700">
+      <div class="info-title">Lifecycle tracking</div>
+      <div class="info-detail">
+        After applying, use <strong>manage.containment_expire</strong> to check if
+        the patch is installed. Once patched, the containment module is
+        <strong>safely removable</strong> with one command.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
+
+    <div class="json-block" data-delay="500">
+      <span class="json-label output-label">Output</span>{
+  <span class="json-key">"containment_needed"</span>: <span class="json-bool">true</span>,
+  <span class="json-key">"gaps_found"</span>: <span class="json-num">2</span>,
+  <span class="json-key">"options"</span>: [{
+    <span class="json-key">"strategy"</span>: <span class="json-str">"minimal"</span>,
+    <span class="json-key">"module_name"</span>: <span class="json-str">"emcp_cve_2024_6387_minimal"</span>,
+    <span class="json-key">"cil_content"</span>: <span class="json-str">"(block emcp_cve_2024_6387_minimal\n  (deny sshd_t shadow_t (file (read))))"</span>,
+    <span class="json-key">"effectiveness"</span>: <span class="json-num">40</span>,
+    <span class="json-key">"operational_impact"</span>: <span class="json-str">"low"</span>,
+    <span class="json-key">"risk_assessment"</span>: {
+      <span class="json-key">"risk_score"</span>: <span class="json-num">0</span>,
+      <span class="json-key">"risk_level"</span>: <span class="json-str">"low"</span>}
+  }, {
+    <span class="json-key">"strategy"</span>: <span class="json-str">"full_lockdown"</span>,
+    <span class="json-key">"module_name"</span>: <span class="json-str">"emcp_cve_2024_6387_lockdown"</span>,
+    <span class="json-key">"effectiveness"</span>: <span class="json-num">75</span>,
+    <span class="json-key">"operational_impact"</span>: <span class="json-str">"high"</span>,
+    <span class="json-key">"risk_assessment"</span>: {
+      <span class="json-key">"risk_score"</span>: <span class="json-num">12</span>,
+      <span class="json-key">"risk_level"</span>: <span class="json-str">"low"</span>}
+  }]
+}</div>
+
+    <div class="info-card" data-delay="1100">
+      <div class="info-title">Does NOT auto-apply</div>
+      <div class="info-detail">
+        Options are <strong>ranked by risk</strong>. The agent presents them to the
+        operator. After confirmation, <strong>manage.load_module</strong> applies
+        the chosen CIL module. Tagged with the CVE ID for lifecycle tracking.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SLIDE 9: Architecture ============ -->
 <div class="slide arch-slide">
   <h2>Architecture</h2>
 
@@ -767,7 +939,7 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
       <div class="arch-detail">
         Built on <strong>FastMCP 2.x</strong> (Python MCP SDK) with async SSH backend
         via Paramiko. Pydantic 2.x models for all structured I/O.
-        85 tests against real RHEL 9.8 CLI fixtures.
+        144 tests against real RHEL 9.8 CLI fixtures.
       </div>
     </div>
     <div class="arch-card" data-delay="900">
@@ -783,7 +955,7 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
 
   <div class="tier-row">
     <div class="tier-pill t1" data-delay="1100">
-      <div class="tier-count">14</div>
+      <div class="tier-count">16</div>
       <div class="tier-name">Tier 1: Diagnosis</div>
       <div class="tier-desc">No root &middot; No risk &middot; Read-only</div>
     </div>
@@ -793,15 +965,16 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
       <div class="tier-desc">Root required &middot; Read-only</div>
     </div>
     <div class="tier-pill t3" data-delay="1500">
-      <div class="tier-count">10</div>
+      <div class="tier-count">3</div>
       <div class="tier-name">Tier 3: Manage</div>
       <div class="tier-desc">Root + confirm &middot; Risk-assessed</div>
     </div>
   </div>
 
   <div class="bottom-line" data-delay="1700">
-    <strong>Phase 1 shipped:</strong> 14 diagnosis tools, 85 tests, SSH proxy backend.
-    Phases 2-4: CVE containment, management tier, Rust sidecar for audit streaming.
+    <strong>Phases 1-2 shipped:</strong> 19 tools (16 diagnosis + 3 manage), 144 tests, SSH proxy backend.
+    CVE containment, risk scoring, and exploit chain mapping live.
+    Next: Tier 2 elevated tools, full management suite, Rust sidecar.
   </div>
 </div>
 
@@ -810,7 +983,7 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
 <!-- --- Navigation --- -->
 <div class="nav-bar">
   <button class="nav-btn" id="prevBtn" disabled>&#x2190; Prev</button>
-  <span class="slide-counter"><span id="currentSlide">1</span> / <span id="totalSlides">7</span></span>
+  <span class="slide-counter"><span id="currentSlide">1</span> / <span id="totalSlides">9</span></span>
   <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
   <div class="nav-dots" id="navDots"></div>
   <button class="nav-btn" id="nextBtn">Next &#x2192;</button>
