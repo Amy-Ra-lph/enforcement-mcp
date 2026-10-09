@@ -30,9 +30,12 @@ class IdentityConfig(BaseModel):
 
 def get_host_config() -> HostConfig:
     """Read host configuration from environment variables."""
-    host = os.environ.get("ENFORCEMENT_MCP_HOST", "")
+    host = os.environ.get("ENFORCEMENT_MCP_TARGET") or os.environ.get("ENFORCEMENT_MCP_HOST", "")
     if not host:
-        raise ValueError("ENFORCEMENT_MCP_HOST environment variable is required")
+        raise ValueError(
+            "ENFORCEMENT_MCP_TARGET environment variable is required "
+            "(the remote RHEL host to analyze)"
+        )
     return HostConfig(
         host=host,
         user=os.environ.get("ENFORCEMENT_MCP_USER", "root"),

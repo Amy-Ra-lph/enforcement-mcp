@@ -17,7 +17,7 @@ cd enforcement-mcp
 pip install -e .
 
 # Point at your RHEL host
-export ENFORCEMENT_MCP_HOST=myhost.example.com
+export ENFORCEMENT_MCP_TARGET=myhost.example.com
 export ENFORCEMENT_MCP_USER=root           # default
 export ENFORCEMENT_MCP_KEY_FILE=~/.ssh/id_ed25519  # optional
 ```
@@ -217,7 +217,7 @@ Add to your `claude_desktop_config.json`:
       "command": "uvx",
       "args": ["enforcement-mcp"],
       "env": {
-        "ENFORCEMENT_MCP_HOST": "myhost.example.com"
+        "ENFORCEMENT_MCP_TARGET": "myhost.example.com"
       }
     }
   }
@@ -234,7 +234,7 @@ Add to your MCP settings or `.mcp.json`:
     "command": "uvx",
     "args": ["enforcement-mcp"],
     "env": {
-      "ENFORCEMENT_MCP_HOST": "myhost.example.com"
+      "ENFORCEMENT_MCP_TARGET": "myhost.example.com"
     }
   }
 }
@@ -303,7 +303,7 @@ Add to your MCP client config:
     "command": "uvx",
     "args": ["enforcement-mcp"],
     "env": {
-      "ENFORCEMENT_MCP_HOST": "webserver01.example.com"
+      "ENFORCEMENT_MCP_TARGET": "webserver01.example.com"
     }
   }
 }
@@ -318,7 +318,7 @@ Add to your MCP client config:
       "command": "uvx",
       "args": ["enforcement-mcp"],
       "env": {
-        "ENFORCEMENT_MCP_HOST": "webserver01.example.com"
+        "ENFORCEMENT_MCP_TARGET": "webserver01.example.com"
       }
     }
   }
@@ -342,7 +342,7 @@ Talk to your AI assistant in natural language:
 Change the target by updating the env var — no reconfiguration needed:
 
 ```bash
-export ENFORCEMENT_MCP_HOST=dbserver02.example.com
+export ENFORCEMENT_MCP_TARGET=dbserver02.example.com
 ```
 
 Or run multiple instances for different hosts in parallel.

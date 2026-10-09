@@ -12,7 +12,7 @@ for every operation — no more guessing what `audit2allow` means.
 
 ```bash
 # Set target host
-export ENFORCEMENT_MCP_HOST=myhost.example.com
+export ENFORCEMENT_MCP_TARGET=myhost.example.com
 
 # Run via uvx
 uvx enforcement-mcp
@@ -22,7 +22,7 @@ uv run enforcement-mcp
 
 # Container deployment
 podman run -i --rm \
-  -e ENFORCEMENT_MCP_HOST=myhost.example.com \
+  -e ENFORCEMENT_MCP_TARGET=myhost.example.com \
   -v ~/.ssh/id_ed25519:/opt/app-root/src/.ssh/id_ed25519:ro \
   quay.io/rhel-security/enforcement-mcp
 ```
@@ -31,7 +31,7 @@ podman run -i --rm \
 
 | Environment Variable | Required | Default | Description |
 |---------------------|----------|---------|-------------|
-| `ENFORCEMENT_MCP_HOST` | Yes | — | Target RHEL host |
+| `ENFORCEMENT_MCP_TARGET` | Yes | — | Remote RHEL host to analyze (alias: `ENFORCEMENT_MCP_HOST`) |
 | `ENFORCEMENT_MCP_USER` | No | `root` | SSH user |
 | `ENFORCEMENT_MCP_PORT` | No | `22` | SSH port |
 | `ENFORCEMENT_MCP_KEY_FILE` | No | — | SSH private key (uses SSH agent if unset) |
