@@ -1,8 +1,8 @@
 title: "enforcement-mcp"
-subtitle: "SELinux & Security Policy MCP — Read-Only + Management Tools"
+subtitle: "Modular Security Policy MCP — SELinux, fapolicyd, MLS, AIDE"
 logo: ~/.claude/skills/powerpoint/redhat-logo-white.svg
 theme: rh-dark
-tagline: "Read-only diagnostics for linux-mcp. Policy management for enforcement-mcp."
+tagline: "Pluggable modules. Read-only for linux-mcp. Management for enforcement-mcp."
 
 acts:
   - title: "SELinux Status"
@@ -104,3 +104,23 @@ acts:
       - "User-to-SELinux-user mappings with MLS ranges"
       - "File sensitivity levels and category labels"
       - "Specialized policy type — standalone enforcement-mcp"
+
+  - title: "AIDE Integrity Check"
+    desc: "File integrity monitoring — detect unauthorized changes"
+    cast: output/act11-aide-check.cast
+    icon: shield
+    color: "#009596"
+    points:
+      - "Detects added/removed/changed files across 62,150 monitored paths"
+      - "Real RHEL 10 output: /etc/hosts modification caught with hash diff"
+      - "NEW pluggable module — same architecture as SELinux, fapolicyd, MLS"
+
+  - title: "AIDE + Modular Architecture"
+    desc: "Database management and pluggable module consumption"
+    cast: output/act12-aide-manage.cast
+    icon: database
+    color: "#004080"
+    points:
+      - "aide_init_db / aide_update_db — WRITE tools, dry_run by default"
+      - "4 modules: each independently importable by any MCP server"
+      - "register_readonly_tools() for linux-mcp, register_all() for enforcement-mcp"

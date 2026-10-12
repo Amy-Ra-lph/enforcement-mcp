@@ -1,0 +1,118 @@
+settings:
+  title: "Act 12 — AIDE Database Management (enforcement-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Management: AIDE DB"
+
+  - type: comment
+    text: "Management tools: aide_init_db, aide_update_db — WRITE operations"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      # aide_init_db in dry_run mode — preview before executing
+      python3 -c "
+      import json
+      print(json.dumps({
+          'action': 'aide_init_db',
+          'dry_run': True,
+          'command': 'aide --init && cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz',
+          'warning': 'This creates a new baseline. Only run on a known-good system state.'
+      }, indent=2))
+      "
+    output: |
+      {
+        "action": "aide_init_db",
+        "dry_run": true,
+        "command": "aide --init && cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz",
+        "warning": "This creates a new baseline. Only run on a known-good system state."
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "dry_run=True by default — AI agent must explicitly set dry_run=False"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # After confirming changes are legitimate, update the baseline
+      python3 -c "
+      import json
+      print(json.dumps({
+          'status': 'updated',
+          'database': '/var/lib/aide/aide.db.gz',
+          'changes_incorporated': {
+              'added': 0,
+              'removed': 0,
+              'changed': 1,
+              'total_files_checked': 62150
+          }
+      }, indent=2))
+      "
+    output: |
+      {
+        "status": "updated",
+        "database": "/var/lib/aide/aide.db.gz",
+        "changes_incorporated": {
+          "added": 0,
+          "removed": 0,
+          "changed": 1,
+          "total_files_checked": 62150
+        }
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "Management tools modify the AIDE database — never in linux-mcp"
+    pause_after: 2.0
+
+  - type: marker
+    label: "Modular Architecture"
+
+  - type: comment
+    text: "AIDE is a pluggable module — same pattern as SELinux, fapolicyd, MLS"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # Any MCP server can import individual modules:
+      python3 -c "
+      print('# linux-mcp (read-only only):')
+      print('from enforcement_mcp.modules.selinux import register_readonly_tools')
+      print('from enforcement_mcp.modules.aide import register_readonly_tools')
+      print('register_readonly_tools(mcp, ssh_provider)')
+      print()
+      print('# enforcement-mcp (everything):')
+      print('from enforcement_mcp.modules import register_all_modules')
+      print('register_all_modules(mcp, ssh_provider)')
+      print()
+      print('# Custom MCP (cherry-pick):')
+      print('from enforcement_mcp.modules.aide import register_all')
+      print('register_all(mcp, ssh_provider)  # AIDE everything')
+      "
+    output: |
+      # linux-mcp (read-only only):
+      from enforcement_mcp.modules.selinux import register_readonly_tools
+      from enforcement_mcp.modules.aide import register_readonly_tools
+      register_readonly_tools(mcp, ssh_provider)
+
+      # enforcement-mcp (everything):
+      from enforcement_mcp.modules import register_all_modules
+      register_all_modules(mcp, ssh_provider)
+
+      # Custom MCP (cherry-pick):
+      from enforcement_mcp.modules.aide import register_all
+      register_all(mcp, ssh_provider)  # AIDE everything
+    pause_after: 4.0
+
+  - type: comment
+    text: "4 modules: SELinux, fapolicyd, MLS, AIDE. Each independently consumable."
+    pause_after: 2.5
+
+  - type: marker
+    label: "End of Arcade"

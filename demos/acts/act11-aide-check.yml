@@ -1,0 +1,114 @@
+settings:
+  title: "Act 11 — AIDE Integrity Check (NEW)"
+  width: 110
+  height: 40
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "NEW MODULE: AIDE"
+
+  - type: comment
+    text: "NEW module: AIDE file integrity monitoring — pluggable architecture"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Tool: aide_check — detect added/removed/changed files since baseline"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # Simulate a change — someone edited /etc/hosts
+      echo "# unauthorized change" >> /etc/hosts
+    output: ""
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      # AI agent calls aide_check
+      python3 -c "
+      import json
+      print(json.dumps({
+          'added': 0,
+          'removed': 0,
+          'changed': 1,
+          'total_files_checked': 62150,
+          'changes': [{
+              'path': '/etc/hosts',
+              'change_type': 'changed',
+              'attributes': {'detail': 'f > ...   ..H....'}
+          }]
+      }, indent=2))
+      "
+    output: |
+      {
+        "added": 0,
+        "removed": 0,
+        "changed": 1,
+        "total_files_checked": 62150,
+        "changes": [
+          {
+            "path": "/etc/hosts",
+            "change_type": "changed",
+            "attributes": {
+              "detail": "f > ...   ..H...."
+            }
+          }
+        ]
+      }
+    pause_after: 4.0
+
+  - type: comment
+    text: "/etc/hosts modified — hash mismatch detected across 62,150 monitored files"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Read-only: aide --check doesn't modify anything. linux-mcp candidate."
+    pause_after: 2.0
+
+  - type: comment
+    text: "Tool: aide_config — inspect what AIDE monitors"
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      python3 -c "
+      import json
+      print(json.dumps({
+          'database_path': 'file:/var/lib/aide/aide.db.gz',
+          'database_out_path': 'file:/var/lib/aide/aide.db.new.gz',
+          'rules': [
+              {'path': '/boot', 'rule': 'NORMAL'},
+              {'path': '/bin', 'rule': 'NORMAL'},
+              {'path': '/etc', 'rule': 'NORMAL'},
+              {'path': '!/etc/mtab', 'rule': 'exclude'},
+              {'path': '/var/log', 'rule': 'DATAONLY'}
+          ],
+          'custom_rules': [
+              {'name': 'NORMAL', 'definition': 'p+i+n+u+g+s+m+c+acl+selinux+xattrs+sha256'},
+              {'name': 'DATAONLY', 'definition': 'p+n+u+g+s+acl+selinux+xattrs+sha256'}
+          ]
+      }, indent=2))
+      "
+    output: |
+      {
+        "database_path": "file:/var/lib/aide/aide.db.gz",
+        "database_out_path": "file:/var/lib/aide/aide.db.new.gz",
+        "rules": [
+          {"path": "/boot", "rule": "NORMAL"},
+          {"path": "/bin", "rule": "NORMAL"},
+          {"path": "/etc", "rule": "NORMAL"},
+          {"path": "!/etc/mtab", "rule": "exclude"},
+          {"path": "/var/log", "rule": "DATAONLY"}
+        ],
+        "custom_rules": [
+          {"name": "NORMAL", "definition": "p+i+n+u+g+s+m+c+acl+selinux+xattrs+sha256"},
+          {"name": "DATAONLY", "definition": "p+n+u+g+s+acl+selinux+xattrs+sha256"}
+        ]
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "150 watched paths on RHEL 10. AI agent knows exactly what's monitored."
+    pause_after: 2.0
