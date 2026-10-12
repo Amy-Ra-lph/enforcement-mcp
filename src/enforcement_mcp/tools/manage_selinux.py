@@ -123,7 +123,7 @@ async def generate_module(
         return check
 
     ts = parse_time_spec(from_denials)
-    cmd = f"ausearch -m AVC -ts {ts} 2>/dev/null"
+    cmd = f"timeout 15 ausearch -m AVC -ts {ts} 2>/dev/null"
     if source_type:
         cmd += f" | grep 'scontext=.*:{quote_arg(source_type)}:'"
 

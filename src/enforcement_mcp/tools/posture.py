@@ -25,7 +25,7 @@ async def host_posture(ssh: SSHBackend) -> dict:
     if config_result.success and "=" in config_result.stdout:
         policy_type = config_result.stdout.strip().split("=")[1]
 
-    avc_result = await ssh.execute("ausearch -m AVC -ts today 2>/dev/null")
+    avc_result = await ssh.execute("timeout 15 ausearch -m AVC -ts today 2>/dev/null")
     avc_denials = parse_avc_denials(avc_result.stdout)
     denial_count = len(avc_denials)
 
@@ -67,7 +67,7 @@ async def host_posture(ssh: SSHBackend) -> dict:
         fap_rules = int(fap_rules_result.stdout.strip()) if fap_rules_result.success else 0
         fap_trust_result = await ssh.execute("fapolicyd-cli --list 2>/dev/null | wc -l")
         fap_trust = int(fap_trust_result.stdout.strip()) if fap_trust_result.success else 0
-        fap_denials_result = await ssh.execute("ausearch -m FANOTIFY -ts today 2>/dev/null")
+        fap_denials_result = await ssh.execute("timeout 15 ausearch -m FANOTIFY -ts today 2>/dev/null")
         fap_denial_list = parse_fanotify_denials(fap_denials_result.stdout)
 
         fapolicyd_info = {
@@ -195,7 +195,7 @@ async def troubleshoot(
             except SanitizationError as e:
                 return e.to_dict()
             avc_result = await ssh.execute(
-                f"ausearch -m AVC -ts recent 2>/dev/null | grep {quote_arg(process)}"
+                f"timeout 15 ausearch -m AVC -ts recent 2>/dev/null | grep {quote_arg(process)}"
             )
             avc_denials_list = parse_avc_denials(avc_result.stdout)
             if avc_denials_list:
@@ -219,7 +219,7 @@ async def troubleshoot(
 
         fap_installed = (await ssh.execute("rpm -q fapolicyd 2>/dev/null")).exit_code == 0
         if fap_installed:
-            fap_result = await ssh.execute("ausearch -m FANOTIFY -ts recent 2>/dev/null")
+            fap_result = await ssh.execute("timeout 15 ausearch -m FANOTIFY -ts recent 2>/dev/null")
             fap_denials = parse_fanotify_denials(fap_result.stdout)
             if path:
                 fap_denials = [d for d in fap_denials if path in str(d.get("exe", ""))]

@@ -68,7 +68,7 @@ async def avc_denials(
         return SELINUX_DISABLED_ERROR
 
     ts = parse_time_spec(since)
-    cmd = f"ausearch -m AVC -ts {ts} 2>/dev/null"
+    cmd = f"timeout 15 ausearch -m AVC -ts {ts} 2>/dev/null"
     if source_type:
         cmd += f" | grep {quote_arg(f'scontext=.*:{source_type}:')}"
 
