@@ -14,6 +14,13 @@ from enforcement_mcp.risk import (
     score_fapolicyd_trust,
     score_module_change,
 )
+from enforcement_mcp.sanitize import (
+    quote_arg,
+    sanitize_path,
+    sanitize_selinux_class,
+    sanitize_selinux_permission,
+    sanitize_selinux_type,
+)
 from enforcement_mcp.ssh import SSHBackend
 
 SYSTEM_ROLES_COLLECTION = "fedora.linux_system_roles"
@@ -95,6 +102,16 @@ async def _remediate_denial(ssh: SSHBackend | None, params: dict) -> dict:
             "error": "missing_params",
             "required": ["source_type", "target_type", "tclass", "permission"],
         }
+
+    try:
+        source = sanitize_selinux_type(source, "source_type")
+        target = sanitize_selinux_type(target, "target_type")
+        tclass = sanitize_selinux_class(tclass)
+        permission = sanitize_selinux_permission(permission)
+        if path:
+            path = sanitize_path(path)
+    except ValueError as e:
+        return {"error": "invalid_input", "detail": str(e)}
 
     alternatives = []
 
@@ -222,6 +239,15 @@ def _remediate_file_context(params: dict) -> dict:
     if not path:
         return {"error": "missing_params", "required": ["path"]}
 
+    try:
+        path = sanitize_path(path)
+        if expected_type:
+            expected_type = sanitize_selinux_type(expected_type, "expected_type")
+        if actual_type:
+            actual_type = sanitize_selinux_type(actual_type, "actual_type")
+    except ValueError as e:
+        return {"error": "invalid_input", "detail": str(e)}
+
     alternatives = []
 
     # Option 1: restorecon (relabel to expected)
@@ -294,6 +320,11 @@ def _remediate_fapolicyd(params: dict) -> dict:
     if not path:
         return {"error": "missing_params", "required": ["path"]}
 
+    try:
+        path = sanitize_path(path)
+    except ValueError as e:
+        return {"error": "invalid_input", "detail": str(e)}
+
     risk = score_fapolicyd_trust(path=path)
 
     play = _playbook_header(f"Trust {path} in fapolicyd")
@@ -329,6 +360,11 @@ def _remediate_fapolicyd(params: dict) -> dict:
 def _remediate_aide(params: dict) -> dict:
     paths = params.get("changed_paths", [])
     action = str(params.get("action", "investigate"))
+
+    try:
+        paths = [sanitize_path(p) for p in paths]
+    except ValueError as e:
+        return {"error": "invalid_input", "detail": str(e)}
 
     if action == "accept":
         play = _playbook_header("Update AIDE baseline after verified changes")
@@ -387,8 +423,8 @@ async def _find_boolean_for_denial(
 ) -> list[dict]:
     """Find booleans that would allow a denied operation."""
     cmd = (
-        f"sesearch --allow -s {source} -t {target} "
-        f"-c {tclass} -p {permission} -b 2>/dev/null"
+        f"sesearch --allow -s {quote_arg(source)} -t {quote_arg(target)} "
+        f"-c {quote_arg(tclass)} -p {quote_arg(permission)} -b 2>/dev/null"
     )
     result = await ssh.execute(cmd)
     if not result.success:

