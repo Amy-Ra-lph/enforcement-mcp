@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Annotated
 
 from pydantic import Field
 
-from ...tools.mls import mls_categories, mls_file_level, mls_user_mappings
-from ...tools.manage_mls import mls_assign_category, mls_set_user_range
 from ...ssh import SSHBackend
+from ...tools.manage_mls import mls_assign_category, mls_set_user_range
+from ...tools.mls import mls_categories, mls_file_level, mls_user_mappings
 
 
 def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend]]):
@@ -49,12 +50,18 @@ def register_management_tools(mcp, ssh_provider, auth_handler=None):
     ) -> dict:
         """Assign MLS categories to files."""
         if auth_handler:
-            params = {"path": path, "categories": categories, "recursive": recursive, "dry_run": dry_run}
+            params = {
+                "path": path, "categories": categories,
+                "recursive": recursive, "dry_run": dry_run,
+            }
             _, err = await auth_handler("manage.mls_assign_category", identity_token, params)
             if err:
                 return err
         ssh = await ssh_provider()
-        return await mls_assign_category(ssh, path=path, categories=categories, recursive=recursive, dry_run=dry_run)
+        return await mls_assign_category(
+            ssh, path=path, categories=categories,
+            recursive=recursive, dry_run=dry_run,
+        )
 
     @mcp.tool(name="manage.mls_set_user_range")
     async def tool_mls_set_user_range(
@@ -65,11 +72,16 @@ def register_management_tools(mcp, ssh_provider, auth_handler=None):
     ) -> dict:
         """Modify a user's MLS range."""
         if auth_handler:
-            _, err = await auth_handler("manage.mls_set_user_range", identity_token, {"login": login, "range_spec": range_spec, "dry_run": dry_run})
+            _, err = await auth_handler(
+                "manage.mls_set_user_range", identity_token,
+                {"login": login, "range_spec": range_spec, "dry_run": dry_run},
+            )
             if err:
                 return err
         ssh = await ssh_provider()
-        return await mls_set_user_range(ssh, login=login, range_spec=range_spec, dry_run=dry_run)
+        return await mls_set_user_range(
+            ssh, login=login, range_spec=range_spec, dry_run=dry_run,
+        )
 
 
 def register_all(mcp, ssh_provider, auth_handler=None):

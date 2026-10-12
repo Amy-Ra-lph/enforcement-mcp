@@ -6,10 +6,12 @@ Management tools (aide_init_db, aide_update_db) modify the AIDE database.
 
 from __future__ import annotations
 
-from typing import Annotated, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Annotated
 
 from pydantic import Field
 
+from ...ssh import SSHBackend
 from ...tools.aide import (
     aide_check,
     aide_config,
@@ -17,7 +19,6 @@ from ...tools.aide import (
     aide_report,
     aide_update_db,
 )
-from ...ssh import SSHBackend
 
 
 def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend]]):
@@ -67,7 +68,10 @@ def register_management_tools(mcp, ssh_provider, auth_handler=None):
     ) -> dict:
         """Update AIDE database after known-good changes."""
         if auth_handler:
-            _, err = await auth_handler("manage.aide_update_db", identity_token, {"dry_run": dry_run})
+            _, err = await auth_handler(
+                "manage.aide_update_db", identity_token,
+                {"dry_run": dry_run},
+            )
             if err:
                 return err
         ssh = await ssh_provider()

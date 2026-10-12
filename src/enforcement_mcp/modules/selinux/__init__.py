@@ -6,18 +6,12 @@ Management tools are mutating and belong in enforcement-mcp.
 
 from __future__ import annotations
 
-from typing import Annotated, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Annotated
 
 from pydantic import Field
 
-from ...tools.selinux import (
-    avc_denials,
-    boolean_list,
-    check_selinux_enabled,
-    denial_explain,
-    file_context,
-    policy_query,
-)
+from ...ssh import SSHBackend
 from ...tools.manage_selinux import (
     generate_module,
     load_module,
@@ -25,7 +19,13 @@ from ...tools.manage_selinux import (
     set_boolean,
     set_file_context,
 )
-from ...ssh import SSHBackend
+from ...tools.selinux import (
+    avc_denials,
+    boolean_list,
+    denial_explain,
+    file_context,
+    policy_query,
+)
 
 
 def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend]]):
@@ -41,7 +41,7 @@ def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend
         ] = None,
         raw_text: Annotated[
             str | None,
-            Field(description="Raw AVC text for offline analysis. If provided, parses this instead of querying via SSH."),
+            Field(description="Raw AVC text for offline analysis"),
         ] = None,
     ) -> dict:
         """Get SELinux AVC denials. Pass raw_text for offline analysis, or omit for live host."""
@@ -50,13 +50,21 @@ def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend
 
     @mcp.tool(name="diagnosis.policy_query")
     async def tool_policy_query(
-        source_type: Annotated[str, Field(description="SELinux type to query, e.g. 'httpd_t'")],
-        tclass: Annotated[str | None, Field(description="Object class filter, e.g. 'file'")] = None,
-        permission: Annotated[str | None, Field(description="Permission filter, e.g. 'read'")] = None,
+        source_type: Annotated[
+        str, Field(description="SELinux type to query, e.g. 'httpd_t'")
+    ],
+        tclass: Annotated[
+            str | None, Field(description="Object class filter, e.g. 'file'")
+        ] = None,
+        permission: Annotated[
+            str | None, Field(description="Permission filter, e.g. 'read'")
+        ] = None,
     ) -> dict:
         """Query SELinux allow rules for a source type."""
         ssh = await ssh_provider()
-        return await policy_query(ssh, source_type=source_type, tclass=tclass, permission=permission)
+        return await policy_query(
+            ssh, source_type=source_type, tclass=tclass, permission=permission
+        )
 
     @mcp.tool(name="diagnosis.boolean_list")
     async def tool_boolean_list(
@@ -83,7 +91,10 @@ def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend
     ) -> dict:
         """Explain why a specific SELinux denial happened."""
         ssh = await ssh_provider()
-        return await denial_explain(ssh, source=source, target=target, tclass=tclass, permission=permission)
+        return await denial_explain(
+            ssh, source=source, target=target,
+            tclass=tclass, permission=permission,
+        )
 
 
 def register_management_tools(
@@ -113,7 +124,10 @@ def register_management_tools(
             if err:
                 return err
         ssh = await ssh_provider()
-        return await set_boolean(ssh, name=name, value=value, persistent=persistent, dry_run=dry_run)
+        return await set_boolean(
+            ssh, name=name, value=value,
+            persistent=persistent, dry_run=dry_run,
+        )
 
     @mcp.tool(name="manage.generate_module")
     async def tool_generate_module(
@@ -129,7 +143,10 @@ def register_management_tools(
             if err:
                 return err
         ssh = await ssh_provider()
-        return await generate_module(ssh, name=name, from_denials=from_denials, source_type=source_type)
+        return await generate_module(
+            ssh, name=name, from_denials=from_denials,
+            source_type=source_type,
+        )
 
     @mcp.tool(name="manage.load_module")
     async def tool_load_module(
@@ -140,7 +157,10 @@ def register_management_tools(
     ) -> dict:
         """Load a CIL policy module into the running SELinux policy."""
         if auth_handler:
-            _, err = await auth_handler("manage.load_module", identity_token, {"name": name, "dry_run": dry_run})
+            _, err = await auth_handler(
+                "manage.load_module", identity_token,
+                {"name": name, "dry_run": dry_run},
+            )
             if err:
                 return err
         ssh = await ssh_provider()
@@ -154,7 +174,10 @@ def register_management_tools(
     ) -> dict:
         """Remove a loaded SELinux policy module."""
         if auth_handler:
-            _, err = await auth_handler("manage.remove_module", identity_token, {"name": name, "dry_run": dry_run})
+            _, err = await auth_handler(
+                "manage.remove_module", identity_token,
+                {"name": name, "dry_run": dry_run},
+            )
             if err:
                 return err
         ssh = await ssh_provider()
@@ -169,11 +192,16 @@ def register_management_tools(
     ) -> dict:
         """Add a persistent file context rule and relabel."""
         if auth_handler:
-            _, err = await auth_handler("manage.set_file_context", identity_token, {"path": path, "context_type": context_type, "dry_run": dry_run})
+            _, err = await auth_handler(
+                "manage.set_file_context", identity_token,
+                {"path": path, "context_type": context_type, "dry_run": dry_run},
+            )
             if err:
                 return err
         ssh = await ssh_provider()
-        return await set_file_context(ssh, path=path, context_type=context_type, dry_run=dry_run)
+        return await set_file_context(
+            ssh, path=path, context_type=context_type, dry_run=dry_run,
+        )
 
 
 def register_all(mcp, ssh_provider, auth_handler=None):

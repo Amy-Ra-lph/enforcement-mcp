@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Annotated
 
 from pydantic import Field
 
+from ...ssh import SSHBackend
 from ...tools.fapolicyd import (
     fapolicyd_denials,
     fapolicyd_rules,
@@ -13,7 +15,6 @@ from ...tools.fapolicyd import (
     fapolicyd_trust_check,
 )
 from ...tools.manage_fapolicyd import fapolicyd_trust_add, fapolicyd_trust_remove
-from ...ssh import SSHBackend
 
 
 def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend]]):
@@ -28,7 +29,9 @@ def register_readonly_tools(mcp, ssh_provider: Callable[[], Awaitable[SSHBackend
     @mcp.tool(name="diagnosis.fapolicyd_denials")
     async def tool_fapolicyd_denials(
         since: Annotated[str, Field(description="Time window, e.g. '1h', '24h'")] = "24h",
-        raw_text: Annotated[str | None, Field(description="Raw FANOTIFY text for offline analysis")] = None,
+        raw_text: Annotated[
+            str | None, Field(description="Raw FANOTIFY text for offline analysis")
+        ] = None,
     ) -> dict:
         """Get fapolicyd FANOTIFY denials."""
         ssh = None if raw_text else await ssh_provider()
@@ -61,7 +64,10 @@ def register_management_tools(mcp, ssh_provider, auth_handler=None):
     ) -> dict:
         """Add a binary to fapolicyd ancillary trust."""
         if auth_handler:
-            _, err = await auth_handler("manage.fapolicyd_trust_add", identity_token, {"path": path, "dry_run": dry_run})
+            _, err = await auth_handler(
+                "manage.fapolicyd_trust_add", identity_token,
+                {"path": path, "dry_run": dry_run},
+            )
             if err:
                 return err
         ssh = await ssh_provider()
@@ -75,7 +81,10 @@ def register_management_tools(mcp, ssh_provider, auth_handler=None):
     ) -> dict:
         """Remove a binary from fapolicyd trust."""
         if auth_handler:
-            _, err = await auth_handler("manage.fapolicyd_trust_remove", identity_token, {"path": path, "dry_run": dry_run})
+            _, err = await auth_handler(
+                "manage.fapolicyd_trust_remove", identity_token,
+                {"path": path, "dry_run": dry_run},
+            )
             if err:
                 return err
         ssh = await ssh_provider()

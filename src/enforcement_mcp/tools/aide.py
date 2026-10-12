@@ -26,7 +26,9 @@ async def aide_check(ssh: SSHBackend) -> dict:
     if not await _check_aide_installed(ssh):
         return AIDE_NOT_INSTALLED_ERROR
 
-    db_check = await ssh.execute("test -f /var/lib/aide/aide.db.gz || test -f /var/lib/aide/aide.db")
+    db_check = await ssh.execute(
+        "test -f /var/lib/aide/aide.db.gz || test -f /var/lib/aide/aide.db"
+    )
     if db_check.exit_code != 0:
         return {
             "error": "aide_no_database",
@@ -89,7 +91,10 @@ async def aide_init_db(ssh: SSHBackend, dry_run: bool = True) -> dict:
 
     cp_result = await ssh.execute("cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz")
     if cp_result.exit_code != 0:
-        return {"error": "aide_db_copy_failed", "message": "Init succeeded but database copy failed"}
+        return {
+            "error": "aide_db_copy_failed",
+            "message": "Init succeeded but database copy failed",
+        }
 
     return {"status": "initialized", "database": "/var/lib/aide/aide.db.gz"}
 
@@ -107,7 +112,10 @@ async def aide_update_db(ssh: SSHBackend, dry_run: bool = True) -> dict:
             "action": "aide_update_db",
             "dry_run": True,
             "command": "aide --update && cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz",
-            "warning": "This updates the baseline. Verify all current changes are legitimate first.",
+            "warning": (
+                "This updates the baseline."
+                " Verify all current changes are legitimate first."
+            ),
         }
 
     result = await ssh.execute("timeout 300 aide --update 2>&1", timeout=310)
@@ -118,7 +126,10 @@ async def aide_update_db(ssh: SSHBackend, dry_run: bool = True) -> dict:
 
     cp_result = await ssh.execute("cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz")
     if cp_result.exit_code != 0:
-        return {"error": "aide_db_copy_failed", "message": "Update succeeded but database copy failed"}
+        return {
+            "error": "aide_db_copy_failed",
+            "message": "Update succeeded but database copy failed",
+        }
 
     return {
         "status": "updated",

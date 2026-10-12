@@ -11,7 +11,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from . import aide, fapolicyd, mls, selinux
+    from . import aide as aide
+    from . import fapolicyd as fapolicyd
+    from . import mls as mls
+    from . import selinux as selinux
 
 _MODULES: dict[str, type] = {}
 

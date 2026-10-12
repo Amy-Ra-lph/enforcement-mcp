@@ -42,7 +42,8 @@ def parse_aide_check(stdout: str) -> AIDEReport:
         elif stripped.startswith("Changed entries"):
             section = "changed"
             continue
-        elif stripped.startswith("Detailed information") or stripped.startswith("The attributes of"):
+        elif (stripped.startswith("Detailed information")
+              or stripped.startswith("The attributes of")):
             section = ""
             continue
         elif stripped.startswith("---") or not stripped:
@@ -58,7 +59,10 @@ def parse_aide_check(stdout: str) -> AIDEReport:
             path = sanitize_parsed_path(path)
             if path:
                 attrs_str = stripped[:colon_idx]
-                changes.append(AIDEChange(path=path, change_type=section, attributes={"detail": attrs_str.strip()}))
+                changes.append(AIDEChange(
+                    path=path, change_type=section,
+                    attributes={"detail": attrs_str.strip()},
+                ))
             continue
 
         # Older format: path at start of line
@@ -104,7 +108,10 @@ def parse_aide_config(stdout: str) -> AIDEConfig:
 
         rule_def = re.match(r"(\w+)\s*=\s*(.+)", stripped)
         if rule_def and not stripped.startswith("/"):
-            custom_rules.append({"name": rule_def.group(1), "definition": rule_def.group(2).strip()})
+            custom_rules.append({
+                "name": rule_def.group(1),
+                "definition": rule_def.group(2).strip(),
+            })
             continue
 
         if stripped.startswith("!"):

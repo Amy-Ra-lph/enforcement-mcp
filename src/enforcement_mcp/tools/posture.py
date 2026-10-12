@@ -67,7 +67,8 @@ async def host_posture(ssh: SSHBackend) -> dict:
         fap_rules = int(fap_rules_result.stdout.strip()) if fap_rules_result.success else 0
         fap_trust_result = await ssh.execute("fapolicyd-cli --list 2>/dev/null | wc -l")
         fap_trust = int(fap_trust_result.stdout.strip()) if fap_trust_result.success else 0
-        fap_denials_result = await ssh.execute("timeout 15 ausearch -m FANOTIFY -ts today 2>/dev/null")
+        fap_cmd = "timeout 15 ausearch -m FANOTIFY -ts today 2>/dev/null"
+        fap_denials_result = await ssh.execute(fap_cmd)
         fap_denial_list = parse_fanotify_denials(fap_denials_result.stdout)
 
         fapolicyd_info = {

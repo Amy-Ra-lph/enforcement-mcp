@@ -3,10 +3,9 @@
 import pytest
 
 from enforcement_mcp.parsers._hardening import (
-    InputTooLargeError,
     MAX_INPUT_BYTES,
+    InputTooLargeError,
     sanitize_parsed_path,
-    validate_input_size,
 )
 from enforcement_mcp.parsers.aide_cli import parse_aide_check, parse_aide_config
 from enforcement_mcp.parsers.ausearch import parse_avc_denials, parse_fanotify_denials

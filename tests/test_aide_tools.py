@@ -9,7 +9,6 @@ from enforcement_mcp.tools.aide import (
     aide_check,
     aide_config,
     aide_init_db,
-    aide_report,
     aide_update_db,
 )
 

@@ -4,8 +4,7 @@ Goal: no parser crashes on arbitrary input. Every parser must either return
 a valid result or raise InputTooLargeError — never an unhandled exception.
 """
 
-import pytest
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from enforcement_mcp.parsers._hardening import InputTooLargeError
