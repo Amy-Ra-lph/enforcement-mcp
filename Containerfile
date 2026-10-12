@@ -3,7 +3,7 @@ FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
 LABEL name="enforcement-mcp" \
       summary="SELinux/fapolicyd/MLS policy intelligence MCP server" \
       description="Diagnosis and management of host security enforcement policy via MCP" \
-      version="0.4.0"
+      version="0.5.0"
 
 WORKDIR /opt/app-root/src
 
