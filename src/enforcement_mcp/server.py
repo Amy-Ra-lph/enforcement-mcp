@@ -29,6 +29,7 @@ from .tools import (
     fapolicyd_trust_remove,
     file_context,
     generate_module,
+    generate_playbook,
     host_posture,
     load_module,
     mls_assign_category,
@@ -348,6 +349,54 @@ async def tool_active_containments() -> dict:
     """List temporary CVE containment modules currently in effect, with patch status."""
     ssh = await _get_ssh()
     return await active_containments(ssh)
+
+
+@mcp.tool(name="diagnosis.generate_playbook")
+async def tool_generate_playbook(
+    finding_type: Annotated[
+        str,
+        Field(description="Type: 'denial', 'file_context', 'fapolicyd_block', 'aide_change'"),
+    ],
+    source_type: Annotated[
+        str | None, Field(description="SELinux source type (denial)")
+    ] = None,
+    target_type: Annotated[
+        str | None, Field(description="SELinux target type (denial)")
+    ] = None,
+    tclass: Annotated[
+        str | None, Field(description="Object class (denial)")
+    ] = None,
+    permission: Annotated[
+        str | None, Field(description="Permission (denial)")
+    ] = None,
+    path: Annotated[
+        str | None, Field(description="File path (any finding type)")
+    ] = None,
+    expected_type: Annotated[
+        str | None, Field(description="Expected SELinux type (file_context)")
+    ] = None,
+    actual_type: Annotated[
+        str | None, Field(description="Actual SELinux type (file_context)")
+    ] = None,
+    changed_paths: Annotated[
+        list[str] | None, Field(description="Changed file paths (aide_change)")
+    ] = None,
+    action: Annotated[
+        str | None, Field(description="'investigate' or 'accept' (aide_change)")
+    ] = None,
+) -> dict:
+    """Generate an Ansible remediation playbook using linux-system-roles. Read-only: returns YAML text with risk assessment, never executes. Ranks fix options from narrowest scope to broadest."""
+    ssh = await _get_ssh()
+    params: dict = {}
+    for key, val in [
+        ("source_type", source_type), ("target_type", target_type),
+        ("tclass", tclass), ("permission", permission), ("path", path),
+        ("expected_type", expected_type), ("actual_type", actual_type),
+        ("changed_paths", changed_paths), ("action", action),
+    ]:
+        if val is not None:
+            params[key] = val
+    return await generate_playbook(ssh, finding_type=finding_type, **params)
 
 
 @mcp.tool(name="manage.assess_risk")

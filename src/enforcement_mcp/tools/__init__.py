@@ -20,6 +20,7 @@ from .manage_selinux import (
 from .mls import mls_categories, mls_file_level, mls_user_mappings
 from .offline import parse_denials
 from .posture import host_posture, troubleshoot
+from .remediate import generate_playbook
 from .risk import assess_risk
 from .selinux import (
     avc_denials,
@@ -48,6 +49,7 @@ __all__ = [
     "fapolicyd_trust_remove",
     "file_context",
     "generate_module",
+    "generate_playbook",
     "host_posture",
     "load_module",
     "mls_assign_category",
