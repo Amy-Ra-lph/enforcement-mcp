@@ -832,7 +832,81 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
   </div>
 </div>
 
-<!-- ============ SLIDE 8: CVE Containment ============ -->
+<!-- ============ SLIDE 8: Remediation Playbook ============ -->
+<div class="slide story-slide">
+  <div class="story-header">
+    <div class="story-tag">User Story 6b &mdash; Phase 2</div>
+    <h2>"Generate an Ansible playbook to fix the httpd denial"</h2>
+  </div>
+
+  <div class="panel panel-question">
+    <div class="panel-label">Agent asks</div>
+
+    <div class="info-card visible" style="margin-bottom:16px">
+      <div class="info-title">Scenario</div>
+      <div class="info-detail">
+        Instead of running commands manually, the agent generates an
+        <strong>Ansible playbook</strong> using
+        <strong>fedora.linux_system_roles</strong>. Ranked alternatives
+        from narrowest fix to broadest, each with risk scoring.
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <span class="tool-badge">diagnosis.generate_playbook</span>
+    </div>
+
+    <div class="json-block" data-delay="300">
+      <span class="json-label input-label">Input</span>{
+  <span class="json-key">"finding_type"</span>: <span class="json-str">"denial"</span>,
+  <span class="json-key">"source_type"</span>: <span class="json-str">"httpd_t"</span>,
+  <span class="json-key">"target_type"</span>: <span class="json-str">"user_home_t"</span>,
+  <span class="json-key">"tclass"</span>: <span class="json-str">"file"</span>,
+  <span class="json-key">"permission"</span>: <span class="json-str">"read"</span>,
+  <span class="json-key">"path"</span>: <span class="json-str">"/home/user/public_html/index.html"</span>
+}</div>
+
+    <div class="info-card" data-delay="700">
+      <div class="info-title">Read-only &mdash; Tier 2</div>
+      <div class="info-detail">
+        <strong>Never executes</strong> the playbook. Returns YAML text for
+        human review. Supports 4 finding types: denial, file_context,
+        fapolicyd_block, aide_change.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel panel-output">
+    <div class="panel-label">enforcement-mcp returns</div>
+
+    <div class="json-block" data-delay="500">
+      <span class="json-label output-label">Output</span>{
+  <span class="json-key">"finding_type"</span>: <span class="json-str">"denial"</span>,
+  <span class="json-key">"total_options"</span>: <span class="json-num">3</span>,
+  <span class="json-key">"recommended"</span>: {
+    <span class="json-key">"strategy"</span>: <span class="json-str">"relabel"</span>,
+    <span class="json-key">"scope"</span>: <span class="json-str">"narrowest &mdash; fixes one file, no policy change"</span>,
+    <span class="json-key">"risk"</span>: {<span class="json-key">"risk_score"</span>: <span class="json-num">0</span>, <span class="json-key">"risk_level"</span>: <span class="json-str">"low"</span>}
+  },
+  <span class="json-key">"alternatives"</span>: [
+    {<span class="json-key">"strategy"</span>: <span class="json-str">"relabel"</span>, <span class="json-key">"risk_score"</span>: <span class="json-num">0</span>},
+    {<span class="json-key">"strategy"</span>: <span class="json-str">"boolean"</span>, <span class="json-key">"boolean"</span>: <span class="json-str">"httpd_read_user_content"</span>, <span class="json-key">"risk_score"</span>: <span class="json-num">18</span>},
+    {<span class="json-key">"strategy"</span>: <span class="json-str">"custom_module"</span>, <span class="json-key">"risk_score"</span>: <span class="json-num">5</span>}
+  ]
+}</div>
+
+    <div class="info-card" data-delay="1000">
+      <div class="info-title">Each alternative includes a complete playbook</div>
+      <div class="info-detail">
+        Ready-to-run YAML using <strong>fedora.linux_system_roles.selinux</strong>.
+        Risk assessment in header comments. Rollback instructions included.
+        <strong>Safest option recommended first</strong> (sorted by risk score ascending).
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SLIDE 9: CVE Containment ============ -->
 <div class="slide story-slide">
   <div class="story-header">
     <div class="story-tag">User Story 7 &mdash; Phase 2</div>
@@ -939,7 +1013,7 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
       <div class="arch-detail">
         Built on <strong>FastMCP 2.x</strong> (Python MCP SDK) with async SSH backend
         via Paramiko. Pydantic 2.x models for all structured I/O.
-        144 tests against real RHEL 9.8 CLI fixtures.
+        411 tests against real RHEL CLI fixtures.
       </div>
     </div>
     <div class="arch-card" data-delay="900">
@@ -955,26 +1029,26 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
 
   <div class="tier-row">
     <div class="tier-pill t1" data-delay="1100">
-      <div class="tier-count">16</div>
+      <div class="tier-count">18</div>
       <div class="tier-name">Tier 1: Diagnosis</div>
       <div class="tier-desc">No root &middot; No risk &middot; Read-only</div>
     </div>
     <div class="tier-pill t2" data-delay="1300">
-      <div class="tier-count">2</div>
-      <div class="tier-name">Tier 2: Elevated</div>
-      <div class="tier-desc">Root required &middot; Read-only</div>
+      <div class="tier-count">1</div>
+      <div class="tier-name">Tier 2: Remediation</div>
+      <div class="tier-desc">Read-only output &middot; Ansible playbooks</div>
     </div>
     <div class="tier-pill t3" data-delay="1500">
-      <div class="tier-count">3</div>
+      <div class="tier-count">12</div>
       <div class="tier-name">Tier 3: Manage</div>
       <div class="tier-desc">Root + confirm &middot; Risk-assessed</div>
     </div>
   </div>
 
   <div class="bottom-line" data-delay="1700">
-    <strong>Phases 1-2 shipped:</strong> 19 tools (16 diagnosis + 3 manage), 144 tests, SSH proxy backend.
-    CVE containment, risk scoring, and exploit chain mapping live.
-    Next: Tier 2 elevated tools, full management suite, Rust sidecar.
+    <strong>v0.5.0:</strong> 30 tools (18 diagnosis + 1 remediation + 12 manage), 411 tests, SSH proxy backend.
+    CVE containment, risk scoring, remediation playbooks, and exploit chain mapping live.
+    SPIFFE/WID identity. linux-system-roles integration. Modular architecture.
   </div>
 </div>
 
@@ -983,7 +1057,7 @@ body{font-family:var(--font-text);color:var(--rh-black);background:#0a0a0a}
 <!-- --- Navigation --- -->
 <div class="nav-bar">
   <button class="nav-btn" id="prevBtn" disabled>&#x2190; Prev</button>
-  <span class="slide-counter"><span id="currentSlide">1</span> / <span id="totalSlides">9</span></span>
+  <span class="slide-counter"><span id="currentSlide">1</span> / <span id="totalSlides">10</span></span>
   <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
   <div class="nav-dots" id="navDots"></div>
   <button class="nav-btn" id="nextBtn">Next &#x2192;</button>
