@@ -1,5 +1,5 @@
 title: "enforcement-mcp"
-subtitle: "Modular Security Policy MCP — SELinux, fapolicyd, MLS, AIDE, Remediation"
+subtitle: "Modular Security Policy MCP — SELinux, fapolicyd, MLS, AIDE, Remediation, CVE Containment"
 logo: ~/.claude/skills/powerpoint/redhat-logo-white.svg
 theme: rh-dark
 tagline: "Pluggable modules. Read-only for linux-mcp. Management for enforcement-mcp."
@@ -134,3 +134,13 @@ acts:
       - "generate_playbook → ranked fix options using fedora.linux_system_roles"
       - "4 finding types: denial, file_context, fapolicyd_block, aide_change"
       - "Tier 2: read-only YAML output with risk assessment — safe for upstream"
+
+  - title: "CVE Containment"
+    desc: "Detect exposure, generate targeted policy, expire after patch"
+    cast: output/act14-cve-containment.cast
+    icon: shield
+    color: "#c9190b"
+    points:
+      - "cve_exposure → ATT&CK chain mapped against live SELinux policy"
+      - "cve_contain → ranked CIL deny modules with risk assessment"
+      - "containment_expire → safe removal after rpm -q confirms patch"
