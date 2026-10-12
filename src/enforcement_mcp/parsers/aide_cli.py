@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 
 from ..models.aide import AIDEChange, AIDEConfig, AIDEReport
+from ._hardening import sanitize_parsed_path, validate_input_size
 
 
 def parse_aide_check(stdout: str) -> AIDEReport:
     """Parse `aide --check` output into structured report."""
+    validate_input_size(stdout, "parse_aide_check")
     changes: list[AIDEChange] = []
     added = removed = changed = total = 0
 
@@ -50,17 +52,21 @@ def parse_aide_check(stdout: str) -> AIDEReport:
             continue
 
         # AIDE 0.19+ format: "f > ...   ..H.... : /etc/hosts"
-        colon_match = re.match(r".*:\s+(/\S+)", stripped)
-        if colon_match:
-            path = colon_match.group(1)
-            attrs_str = stripped[:stripped.rfind(":")]
-            changes.append(AIDEChange(path=path, change_type=section, attributes={"detail": attrs_str.strip()}))
+        colon_idx = stripped.rfind(": /")
+        if colon_idx >= 0:
+            path = stripped[colon_idx + 2:].strip().split()[0]
+            path = sanitize_parsed_path(path)
+            if path:
+                attrs_str = stripped[:colon_idx]
+                changes.append(AIDEChange(path=path, change_type=section, attributes={"detail": attrs_str.strip()}))
             continue
 
         # Older format: path at start of line
         if stripped.startswith("/"):
             path = stripped.split()[0] if " " in stripped else stripped
-            changes.append(AIDEChange(path=path, change_type=section, attributes={}))
+            path = sanitize_parsed_path(path)
+            if path:
+                changes.append(AIDEChange(path=path, change_type=section, attributes={}))
 
     return AIDEReport(
         added=added,
@@ -73,6 +79,7 @@ def parse_aide_check(stdout: str) -> AIDEReport:
 
 def parse_aide_config(stdout: str) -> AIDEConfig:
     """Parse /etc/aide.conf into structured config."""
+    validate_input_size(stdout, "parse_aide_config")
     db_path = ""
     db_out_path = ""
     rules: list[dict] = []

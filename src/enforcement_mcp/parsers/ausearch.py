@@ -2,9 +2,12 @@
 
 import re
 
+from ._hardening import sanitize_parsed_path, validate_input_size
+
 
 def parse_avc_denials(raw: str) -> list[dict]:
     """Parse ausearch -m AVC output into structured denials."""
+    validate_input_size(raw, "parse_avc_denials")
     if not raw.strip() or "no matches" in raw.lower() or "<no matches>" in raw:
         return []
 
@@ -43,7 +46,9 @@ def parse_avc_denials(raw: str) -> list[dict]:
 
         path_match = re.search(r'path="([^"]+)"', line)
         if path_match:
-            denial["path"] = path_match.group(1)
+            cleaned = sanitize_parsed_path(path_match.group(1))
+            if cleaned:
+                denial["path"] = cleaned
 
         scontext = re.search(r"scontext=(\S+)", line)
         if scontext:
@@ -74,6 +79,7 @@ def parse_avc_denials(raw: str) -> list[dict]:
 
 def parse_fanotify_denials(raw: str) -> list[dict]:
     """Parse ausearch -m FANOTIFY output into structured denials."""
+    validate_input_size(raw, "parse_fanotify_denials")
     if not raw.strip() or "no matches" in raw.lower() or "<no matches>" in raw:
         return []
 

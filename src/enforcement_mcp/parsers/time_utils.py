@@ -3,6 +3,8 @@
 import re
 from datetime import UTC, datetime, timedelta
 
+from ._hardening import validate_input_size
+
 
 def parse_time_spec(spec: str) -> str:
     """Convert '1h', '30m', '7d' to ausearch -ts format (MM/DD/YYYY HH:MM:SS).
@@ -10,6 +12,7 @@ def parse_time_spec(spec: str) -> str:
     Also accepts 'recent' (ausearch built-in, last 10 minutes)
     and 'today'/'yesterday' (ausearch built-in).
     """
+    validate_input_size(spec, "parse_time_spec")
     spec = spec.strip().lower()
 
     if spec in ("recent", "today", "yesterday", "this-week", "this-month"):

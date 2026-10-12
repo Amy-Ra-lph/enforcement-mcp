@@ -2,14 +2,18 @@
 
 import re
 
+from ._hardening import validate_input_size
+
 
 def parse_getenforce(raw: str) -> str:
     """Parse getenforce output. Returns 'enforcing', 'permissive', or 'disabled'."""
+    validate_input_size(raw, "parse_getenforce")
     return raw.strip().lower()
 
 
 def parse_getsebool(raw: str) -> list[dict]:
     """Parse getsebool -a output into [{name, state}]."""
+    validate_input_size(raw, "parse_getsebool")
     results = []
     for line in raw.strip().split("\n"):
         if not line.strip() or "-->" not in line:
@@ -27,6 +31,7 @@ def parse_getsebool(raw: str) -> list[dict]:
 
 def parse_sesearch_allow(raw: str) -> list[dict]:
     """Parse sesearch --allow output into structured rules."""
+    validate_input_size(raw, "parse_sesearch_allow")
     results = []
     for line in raw.strip().split("\n"):
         line = line.strip()
@@ -72,6 +77,7 @@ def parse_sesearch_allow(raw: str) -> list[dict]:
 
 def parse_matchpathcon(raw: str) -> dict:
     """Parse matchpathcon output into {path, context, type}."""
+    validate_input_size(raw, "parse_matchpathcon")
     line = raw.strip().split("\n")[0] if raw.strip() else ""
     parts = line.split("\t")
     if len(parts) < 2:
@@ -91,6 +97,7 @@ def parse_matchpathcon(raw: str) -> dict:
 
 def parse_semanage_login(raw: str) -> list[dict]:
     """Parse semanage login -l output into [{login, selinux_user, range}]."""
+    validate_input_size(raw, "parse_semanage_login")
     results = []
     lines = raw.strip().split("\n")
     for line in lines:

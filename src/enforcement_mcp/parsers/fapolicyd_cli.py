@@ -2,9 +2,12 @@
 
 import re
 
+from ._hardening import sanitize_parsed_path, validate_input_size
+
 
 def parse_fapolicyd_list(raw: str) -> list[dict]:
     """Parse fapolicyd-cli --list output into trust entries."""
+    validate_input_size(raw, "parse_fapolicyd_list")
     if not raw.strip():
         return []
 
@@ -14,7 +17,10 @@ def parse_fapolicyd_list(raw: str) -> list[dict]:
         if not line or line.startswith("->"):
             continue
         parts = line.split()
-        entry: dict = {"path": parts[0]}
+        path = sanitize_parsed_path(parts[0])
+        if not path:
+            continue
+        entry: dict = {"path": path}
         if len(parts) >= 2:
             entry["size"] = parts[1]
         if len(parts) >= 3:
@@ -25,6 +31,7 @@ def parse_fapolicyd_list(raw: str) -> list[dict]:
 
 def parse_fapolicyd_dumpdb(raw: str) -> list[dict]:
     """Parse fapolicyd-cli --dump-db output into trust DB entries."""
+    validate_input_size(raw, "parse_fapolicyd_dumpdb")
     if not raw.strip():
         return []
 
@@ -36,7 +43,10 @@ def parse_fapolicyd_dumpdb(raw: str) -> list[dict]:
         parts = line.split()
         if len(parts) < 2:
             continue
-        entry: dict = {"source": parts[0], "path": parts[1]}
+        path = sanitize_parsed_path(parts[1])
+        if not path:
+            continue
+        entry: dict = {"source": parts[0], "path": path}
         if len(parts) >= 3:
             entry["size"] = parts[2]
         if len(parts) >= 4:
@@ -47,6 +57,7 @@ def parse_fapolicyd_dumpdb(raw: str) -> list[dict]:
 
 def parse_fapolicyd_rules(raw: str) -> list[dict]:
     """Parse fapolicyd rules output into structured rules."""
+    validate_input_size(raw, "parse_fapolicyd_rules")
     if not raw.strip():
         return []
 
