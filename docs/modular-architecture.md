@@ -46,6 +46,8 @@ enforcement_mcp/
 │   ├── troubleshoot.py      # Root-cause chain
 │   ├── risk.py              # Risk assessment
 │   └── containment.py       # CVE containment
+├── tools/
+│   └── remediate.py         # Playbook generator (Tier 2 — read-only output)
 └── server.py                # Loads modules, registers composite tools
 ```
 
@@ -141,6 +143,24 @@ class AIDEReport(BaseModel):
     changed: int
     scan_time: str
 ```
+
+## Three-Tier Architecture
+
+Tools are organized into permission tiers:
+
+| Tier | Scope | Auth Required | Examples |
+|------|-------|---------------|----------|
+| **Tier 1: Diagnosis** | Read-only system queries | No | `troubleshoot`, `avc_denials`, `host_posture` |
+| **Tier 2: Remediation** | Generate fix playbooks (YAML output only) | No | `generate_playbook` |
+| **Tier 3: Management** | Mutating policy changes | Yes (if strict) | `set_boolean`, `load_module`, `fapolicyd_trust_add` |
+
+Tier 2 (`tools/remediate.py`) bridges diagnosis and management. It reads system
+state to generate ranked Ansible playbooks using `fedora.linux_system_roles`, but
+never executes them. Each alternative includes a risk assessment from the scoring
+engine. This is safe for upstream contribution (e.g., linux-mcp) since it produces
+text output only.
+
+Supported finding types: `denial`, `file_context`, `fapolicyd_block`, `aide_change`.
 
 ## Migration Path
 

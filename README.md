@@ -40,7 +40,7 @@ podman run -i --rm \
 
 ## Tools
 
-29 tools across three permission tiers. All return structured JSON.
+30 tools across three permission tiers. All return structured JSON.
 
 ### Diagnosis (no root, read-only)
 
@@ -65,6 +65,24 @@ Use `diagnosis.troubleshoot` as the primary entry point when something is blocke
 | `diagnosis.cve_exposure` | Assess policy against a CVE's exploit chain (ATT&CK mapping) |
 | `diagnosis.active_containments` | List temporary CVE containment modules with patch status |
 | `diagnosis.parse_denials` | Parse raw AVC/FANOTIFY text into structured JSON — no SSH needed |
+| `diagnosis.generate_playbook` | Generate Ansible remediation playbook using linux-system-roles with risk assessment |
+
+### Remediation Playbook Generation
+
+`diagnosis.generate_playbook` generates Ansible playbooks using
+[linux-system-roles](https://github.com/linux-system-roles) — read-only YAML output,
+never executes. Each finding type produces ranked fix alternatives sorted by risk
+score (safest first):
+
+| Finding Type | Strategies (narrowest → broadest) |
+|-------------|----------------------------------|
+| `denial` | Relabel file → toggle boolean → custom CIL module |
+| `file_context` | `restorecon` → permanent `fcontext` rule |
+| `fapolicyd_block` | Add to trust DB |
+| `aide_change` | Investigate → accept baseline update |
+
+Every alternative includes a risk assessment from the scoring engine, the playbook
+YAML using `fedora.linux_system_roles`, and rollback instructions.
 
 ### Offline / Log Aggregator Mode
 
@@ -161,7 +179,7 @@ the remote host. Entries include caller identity, tool name, parameters
 # Install dev dependencies
 uv sync --extra dev
 
-# Run tests (322 tests)
+# Run tests (405 tests)
 uv run pytest tests/ -v
 
 # Lint

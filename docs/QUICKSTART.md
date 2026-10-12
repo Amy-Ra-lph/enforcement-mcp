@@ -131,7 +131,59 @@ Response:
 
 Score 18/100, low risk. Safe to proceed.
 
-## 5. Apply the fix
+## 5. Generate a remediation playbook
+
+Instead of running commands manually, generate an Ansible playbook that uses
+[linux-system-roles](https://github.com/linux-system-roles):
+
+```json
+{
+  "tool": "diagnosis.generate_playbook",
+  "arguments": {
+    "finding_type": "denial",
+    "source_type": "httpd_t",
+    "target_type": "user_home_t",
+    "tclass": "file",
+    "permission": "read",
+    "path": "/home/jsmith/public_html"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "finding_type": "denial",
+  "recommended": {
+    "strategy": "relabel",
+    "scope": "narrowest — fixes one file, no policy change",
+    "risk": {"risk_score": 0, "risk_level": "low", "recommendation": "proceed"},
+    "playbook": "# Remediation: Relabel /home/jsmith/public_html...\n---\n..."
+  },
+  "alternatives": [
+    {"strategy": "relabel", "risk": {"risk_score": 0}},
+    {"strategy": "boolean", "boolean": "httpd_read_user_content", "risk": {"risk_score": 18}},
+    {"strategy": "custom_module", "risk": {"risk_score": 5}}
+  ],
+  "total_options": 3
+}
+```
+
+Alternatives ranked safest-first. Each includes a ready-to-run playbook using
+`fedora.linux_system_roles.selinux`. Review the recommended option, then apply
+it with `ansible-playbook` — or proceed to direct management tools below.
+
+The tool supports four finding types:
+
+| Finding Type | When to use |
+|-------------|-------------|
+| `denial` | SELinux AVC denial (from `troubleshoot` or `avc_denials`) |
+| `file_context` | SELinux context mismatch (from `file_context`) |
+| `fapolicyd_block` | fapolicyd blocking a binary (from `fapolicyd_denials`) |
+| `aide_change` | AIDE detected unexpected file changes |
+
+## 6. Apply the fix (direct)
 
 ```json
 {
@@ -155,7 +207,7 @@ Response:
 }
 ```
 
-## 6. Check your security posture
+## 7. Check your security posture
 
 ```json
 {
@@ -175,7 +227,7 @@ Returns a 0-100 posture score with findings:
 }
 ```
 
-## 7. CVE containment (when a patch isn't ready yet)
+## 8. CVE containment (when a patch isn't ready yet)
 
 Check if your policy blocks a CVE's exploit chain:
 
@@ -201,12 +253,14 @@ Returns multiple containment options (minimal, network isolation, full lockdown)
 
 | Scenario | Tools to use |
 |----------|-------------|
-| "Why is my app blocked?" | `troubleshoot` → `denial_explain` → `set_boolean` or `generate_module` |
+| "Why is my app blocked?" | `troubleshoot` → `denial_explain` → `generate_playbook` or `set_boolean` |
 | "Is this host hardened?" | `host_posture` |
 | "What does this boolean do?" | `assess_risk` with `change_type=boolean` |
-| "New binary won't run" | `fapolicyd_trust_check` → `fapolicyd_trust_add` |
+| "New binary won't run" | `fapolicyd_trust_check` → `generate_playbook(fapolicyd_block)` or `fapolicyd_trust_add` |
 | "CVE dropped, no patch yet" | `cve_exposure` → `cve_contain` → `containment_expire` (after patch) |
 | "Need a custom policy module" | `generate_module` → review CIL → `load_module` |
+| "Give me an Ansible playbook" | `generate_playbook` → review YAML → `ansible-playbook` |
+| "AIDE flagged changes" | `generate_playbook(aide_change)` → investigate → accept with playbook |
 
 ## MCP client configuration
 
@@ -343,10 +397,11 @@ Talk to your AI assistant in natural language:
 | You say | What happens |
 |---------|-------------|
 | "Why can't httpd serve files from /home?" | `troubleshoot` → finds AVC denial → `denial_explain` → suggests boolean fix |
+| "Generate a playbook to fix that" | `generate_playbook` → ranked Ansible playbooks with risk scores |
 | "Show me the security posture" | `host_posture` → 0-100 score with findings |
 | "Are we exposed to CVE-2024-6387?" | `cve_exposure` → ATT&CK chain mapped against current policy |
 | "Enable that boolean, it's low risk" | `set_boolean` with `dry_run=false` → applied + verified |
-| "New binary in /opt won't execute" | `fapolicyd_trust_check` → not trusted → `fapolicyd_trust_add` |
+| "New binary in /opt won't execute" | `fapolicyd_trust_check` → not trusted → `generate_playbook` or `fapolicyd_trust_add` |
 
 ### Switching hosts
 
@@ -380,6 +435,7 @@ without ever touching the target host.
 ## Safety model
 
 - **Diagnosis tools** run without root and never modify the system
+- **Playbook generation** produces YAML text output only — never executes playbooks
 - **Management tools** default to `dry_run=true` — they show you what would happen
 - **Risk assessment** runs automatically before every mutation
 - **Critical risk changes** (score 76-100) are hard-blocked

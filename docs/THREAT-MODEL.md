@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-09
 **Methodology:** STRIDE + ATT&CK mapping
-**Scope:** enforcement-mcp v0.4.0 (29 tools, SSH-proxy mode)
+**Scope:** enforcement-mcp v0.5.0 (30 tools, SSH-proxy mode)
 **Attacker models:** Malicious MCP client, compromised agent, network attacker
 
 ## Architecture Overview
@@ -51,6 +51,9 @@ Trust boundaries:
 | T3 | **Audit trail tampering** — Audit log written via same root SSH session. Attacker exploiting T1 can truncate/modify audit in same session. | T1070.002 (Clear Linux Logs) | High | **OPEN** |
 | T4 | **Audit echo injection** — `_sanitize_params` only redacts specific key names. Other params (e.g., `name` containing `$(cmd)`) flow into `echo '...'` command. | T1059.004 (Unix Shell) | Medium | **FIXED** |
 | T5 | **/tmp CIL TOCTOU** — `load_module` writes to predictable `/tmp/{name}.cil`, then `semodule -i`. Local attacker on target can race to replace file. World-readable. | T1574 (Hijack Execution Flow) | Medium | **FIXED** |
+
+| T6 | **Playbook YAML injection** — `generate_playbook` embeds user-supplied `path`, `source_type`, etc. into YAML via `yaml.dump()`. If attacker controls path to include YAML metacharacters, rendered playbook could contain unintended directives when consumed by `ansible-playbook`. | T1059.004 (Unix Shell) | Medium | **MITIGATED** — `yaml.dump()` handles escaping; paths pre-validated by `sanitize_path()` before reaching remediate.py |
+| T7 | **Playbook social engineering** — Generated playbooks include `become: True`. An attacker could craft findings that produce playbooks granting excessive access, relying on human reviewer to approve without reading the risk assessment. | T1204 (User Execution) | Low | By design — risk assessment + rollback instructions included in every playbook |
 
 ### I — Information Disclosure
 
