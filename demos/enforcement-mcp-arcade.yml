@@ -1,5 +1,5 @@
 title: "enforcement-mcp"
-subtitle: "Modular Security Policy MCP — SELinux, fapolicyd, MLS, AIDE"
+subtitle: "Modular Security Policy MCP — SELinux, fapolicyd, MLS, AIDE, Remediation"
 logo: ~/.claude/skills/powerpoint/redhat-logo-white.svg
 theme: rh-dark
 tagline: "Pluggable modules. Read-only for linux-mcp. Management for enforcement-mcp."
@@ -124,3 +124,13 @@ acts:
       - "aide_init_db / aide_update_db — WRITE tools, dry_run by default"
       - "4 modules: each independently importable by any MCP server"
       - "register_readonly_tools() for linux-mcp, register_all() for enforcement-mcp"
+
+  - title: "Remediation Playbooks"
+    desc: "Generate Ansible playbooks with risk-ranked alternatives"
+    cast: output/act13-remediation-playbook.cast
+    icon: terminal
+    color: "#ee0000"
+    points:
+      - "generate_playbook → ranked fix options using fedora.linux_system_roles"
+      - "4 finding types: denial, file_context, fapolicyd_block, aide_change"
+      - "Tier 2: read-only YAML output with risk assessment — safe for upstream"
