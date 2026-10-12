@@ -1,0 +1,61 @@
+settings:
+  title: "Act 7 — Denial Explain (enforcement-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Standalone: Denial Explain"
+
+  - type: comment
+    text: "Tool: denial_explain — root-cause analysis for SELinux denials"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Input: source→target→class→permission. Output: WHY it was denied."
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # Why is httpd_t denied read access to user_home_t files?
+      python3 -c "
+      import json
+      print(json.dumps({
+          'source': 'httpd_t',
+          'target': 'user_home_t',
+          'tclass': 'file',
+          'permission': 'read',
+          'cause': 'boolean',
+          'explanation': 'Access is conditionally allowed by boolean httpd_read_user_content (currently OFF)',
+          'boolean': 'httpd_read_user_content',
+          'boolean_state': 'off',
+          'fix': 'setsebool -P httpd_read_user_content on'
+      }, indent=2))
+      "
+    output: |
+      {
+        "source": "httpd_t",
+        "target": "user_home_t",
+        "tclass": "file",
+        "permission": "read",
+        "cause": "boolean",
+        "explanation": "Access is conditionally allowed by boolean httpd_read_user_content (currently OFF)",
+        "boolean": "httpd_read_user_content",
+        "boolean_state": "off",
+        "fix": "setsebool -P httpd_read_user_content on"
+      }
+    pause_after: 4.0
+
+  - type: comment
+    text: "Three possible causes: boolean (most common), policy_gap, constraint"
+    pause_after: 2.0
+
+  - type: comment
+    text: "Requires sesearch + seinfo + boolean correlation — composite analysis"
+    pause_after: 2.0
+
+  - type: comment
+    text: "Standalone enforcement-mcp. Suggests fix commands (but doesn't execute)."
+    pause_after: 2.0

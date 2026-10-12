@@ -1,0 +1,89 @@
+settings:
+  title: "Act 3 — File Context Labels (linux-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Read-Only: File Context"
+
+  - type: comment
+    text: "Tool: get_selinux_file_context — context labels with mismatch detection"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      ls -Z /etc/passwd /etc/shadow /var/log/messages
+    output: |
+      system_u:object_r:passwd_file_t:s0 /etc/passwd
+           system_u:object_r:shadow_t:s0 /etc/shadow
+          system_u:object_r:var_log_t:s0 /var/log/messages
+    pause_after: 2.5
+
+  - type: comment
+    text: "MCP tool compares actual label vs expected label from policy"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # Check /etc/passwd — labels match
+      python3 -c "
+      import json
+      print(json.dumps({
+          'path': '/etc/passwd',
+          'expected_type': 'passwd_file_t',
+          'actual_type': 'passwd_file_t',
+          'expected_context': 'system_u:object_r:passwd_file_t:s0',
+          'actual_context': 'system_u:object_r:passwd_file_t:s0',
+          'mismatch': False,
+          'fix_command': None
+      }, indent=2))
+      "
+    output: |
+      {
+        "path": "/etc/passwd",
+        "expected_type": "passwd_file_t",
+        "actual_type": "passwd_file_t",
+        "expected_context": "system_u:object_r:passwd_file_t:s0",
+        "actual_context": "system_u:object_r:passwd_file_t:s0",
+        "mismatch": false,
+        "fix_command": null
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "When mismatch=true, fix_command provides the restorecon command"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # Simulated mismatch — file moved without relabeling
+      python3 -c "
+      import json
+      print(json.dumps({
+          'path': '/var/www/html/app.conf',
+          'expected_type': 'httpd_sys_content_t',
+          'actual_type': 'default_t',
+          'mismatch': True,
+          'fix_command': 'restorecon -v /var/www/html/app.conf'
+      }, indent=2))
+      "
+    output: |
+      {
+        "path": "/var/www/html/app.conf",
+        "expected_type": "httpd_sys_content_t",
+        "actual_type": "default_t",
+        "mismatch": true,
+        "fix_command": "restorecon -v /var/www/html/app.conf"
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "Path traversal blocked — '../' and relative paths rejected before execution"
+    pause_after: 2.0
+
+  - type: comment
+    text: "Read-only with input sanitization. Safe for linux-mcp upstream."
+    pause_after: 2.0

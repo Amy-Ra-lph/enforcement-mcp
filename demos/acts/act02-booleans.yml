@@ -1,0 +1,78 @@
+settings:
+  title: "Act 2 — Boolean Inventory (linux-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Read-Only: SELinux Booleans"
+
+  - type: comment
+    text: "Tool: get_selinux_booleans — 314 booleans on stock RHEL 10"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      getsebool -a | head -15
+    output: |
+      abrt_anon_write --> off
+      abrt_handle_event --> on
+      abrt_upload_watch_anon_write --> on
+      auditadm_exec_content --> on
+      authlogin_nsswitch_use_ldap --> off
+      authlogin_radius --> off
+      authlogin_yubikey --> off
+      cdrecord_read_content --> off
+      cluster_can_network_connect --> off
+      cluster_manage_all_files --> off
+      cluster_use_execmem --> off
+      colord_use_nfs --> off
+      condor_tcp_network_connect --> off
+      cron_can_relabel --> off
+      cron_system_cronjob_use_shares --> off
+    pause_after: 2.5
+
+  - type: comment
+    text: "MCP tool parses all 314 booleans into structured name/state pairs"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # AI agent receives structured JSON:
+      python3 -c "
+      import json
+      print(json.dumps({
+          'total': 314,
+          'booleans': [
+              {'name': 'abrt_anon_write', 'state': 'off'},
+              {'name': 'abrt_handle_event', 'state': 'on'},
+              {'name': 'httpd_can_network_connect', 'state': 'off'},
+              {'name': 'httpd_enable_cgi', 'state': 'on'},
+              {'name': 'httpd_enable_homedirs', 'state': 'off'},
+              {'name': 'httpd_use_nfs', 'state': 'off'},
+          ]
+      }, indent=2))
+      "
+    output: |
+      {
+        "total": 314,
+        "booleans": [
+          {"name": "abrt_anon_write", "state": "off"},
+          {"name": "abrt_handle_event", "state": "on"},
+          {"name": "httpd_can_network_connect", "state": "off"},
+          {"name": "httpd_enable_cgi", "state": "on"},
+          {"name": "httpd_enable_homedirs", "state": "off"},
+          {"name": "httpd_use_nfs", "state": "off"}
+        ]
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "Agent insight: httpd_can_network_connect is OFF — httpd can't reach external APIs"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Read-only. No state changes. Safe for linux-mcp upstream."
+    pause_after: 2.0

@@ -1,0 +1,82 @@
+settings:
+  title: "Act 9 — Boolean Management (enforcement-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Management: Set Boolean"
+
+  - type: comment
+    text: "Tool: set_boolean — WRITE operation. Never in linux-mcp."
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      # Before: httpd_can_network_connect is OFF
+      getsebool httpd_can_network_connect
+    output: |
+      httpd_can_network_connect --> off
+    pause_after: 2.0
+
+  - type: comment
+    text: "AI agent calls set_boolean with persist=true"
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      # enforcement-mcp: set_boolean(name='httpd_can_network_connect', value=True, persist=True)
+      setsebool -P httpd_can_network_connect on
+    output: ""
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      # After: boolean is now ON — persists across reboots
+      getsebool httpd_can_network_connect
+    output: |
+      httpd_can_network_connect --> on
+    pause_after: 2.0
+
+  - type: comment
+    text: "enforcement-mcp also provides assess_risk BEFORE changing"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      python3 -c "
+      import json
+      print(json.dumps({
+          'action': 'set_boolean',
+          'target': 'httpd_can_network_connect',
+          'new_value': True,
+          'risk_level': 'medium',
+          'impact': 'Allows httpd to initiate outbound TCP connections to any port',
+          'attack_surface': 'httpd process can now contact external services — SSRF risk if user input controls URLs',
+          'recommendation': 'Ensure httpd configuration restricts ProxyPass targets'
+      }, indent=2))
+      "
+    output: |
+      {
+        "action": "set_boolean",
+        "target": "httpd_can_network_connect",
+        "new_value": true,
+        "risk_level": "medium",
+        "impact": "Allows httpd to initiate outbound TCP connections to any port",
+        "attack_surface": "httpd can now contact external services - SSRF risk",
+        "recommendation": "Ensure httpd configuration restricts ProxyPass targets"
+      }
+    pause_after: 4.0
+
+  - type: command
+    run: |-
+      # Reset for demo
+      setsebool -P httpd_can_network_connect off
+    output: ""
+    hidden: true
+
+  - type: comment
+    text: "WRITE tool + risk assessment = enforcement-mcp only. Never upstream."
+    pause_after: 2.0

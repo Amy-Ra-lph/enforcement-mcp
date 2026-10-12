@@ -1,0 +1,65 @@
+settings:
+  title: "Act 8 — Troubleshoot (enforcement-mcp)"
+  width: 110
+  height: 40
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Standalone: Troubleshoot"
+
+  - type: comment
+    text: "Tool: troubleshoot — composite diagnostic chain"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      # Symptom: "httpd cannot read files in /home"
+      python3 -c "
+      import json
+      print(json.dumps({
+          'symptom': 'httpd cannot read files in /home',
+          'root_cause': 'not_enforcement',
+          'confidence': 'high',
+          'chain': [
+              {'step': 'SELinux mode', 'finding': 'enforcing'},
+              {'step': 'AVC denials for httpd', 'finding': 'none'},
+          ],
+          'denials_found': [],
+          'not_the_cause': [
+              {'subsystem': 'selinux', 'reason': 'No AVC denials for httpd'},
+              {'subsystem': 'fapolicyd', 'reason': 'fapolicyd not installed'}
+          ],
+          'suggestion': 'No enforcement denials found. Check file permissions (chmod/chown) or service configuration.'
+      }, indent=2))
+      "
+    output: |
+      {
+        "symptom": "httpd cannot read files in /home",
+        "root_cause": "not_enforcement",
+        "confidence": "high",
+        "chain": [
+          {"step": "SELinux mode", "finding": "enforcing"},
+          {"step": "AVC denials for httpd", "finding": "none"}
+        ],
+        "denials_found": [],
+        "not_the_cause": [
+          {"subsystem": "selinux", "reason": "No AVC denials for httpd"},
+          {"subsystem": "fapolicyd", "reason": "fapolicyd not installed"}
+        ],
+        "suggestion": "No enforcement denials found. Check file permissions or service config."
+      }
+    pause_after: 4.0
+
+  - type: comment
+    text: "Walks SELinux → fapolicyd → MLS automatically. Returns confidence level."
+    pause_after: 2.0
+
+  - type: comment
+    text: "Negative results matter: 'not_the_cause' prevents AI agent from chasing ghosts"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Composite analysis — standalone enforcement-mcp tool"
+    pause_after: 2.0

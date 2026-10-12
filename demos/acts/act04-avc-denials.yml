@@ -1,0 +1,94 @@
+settings:
+  title: "Act 4 — AVC Denials (linux-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Read-Only: AVC Denials"
+
+  - type: comment
+    text: "Tool: get_selinux_denials — parsed AVC denials from the audit log"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Clean system — no denials in the last hour"
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      # Query via MCP tool — time-windowed
+      python3 -c "
+      import json
+      print(json.dumps({
+          'denials': [],
+          'total': 0,
+          'since': '1h',
+          'mode': 'enforcing'
+      }, indent=2))
+      "
+    output: |
+      {
+        "denials": [],
+        "total": 0,
+        "since": "1h",
+        "mode": "enforcing"
+      }
+    pause_after: 2.5
+
+  - type: comment
+    text: "When denials exist, they're parsed into structured fields"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # Simulated denial — httpd reading user home directory
+      python3 -c "
+      import json
+      print(json.dumps({
+          'denials': [{
+              'source_type': 'httpd_t',
+              'target_type': 'user_home_t',
+              'tclass': 'file',
+              'permission': 'read',
+              'pid': 5678,
+              'comm': 'httpd',
+              'raw': 'avc:  denied  { read } for pid=5678 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file'
+          }],
+          'total': 1,
+          'since': '24h',
+          'mode': 'enforcing'
+      }, indent=2))
+      "
+    output: |
+      {
+        "denials": [
+          {
+            "source_type": "httpd_t",
+            "target_type": "user_home_t",
+            "tclass": "file",
+            "permission": "read",
+            "pid": 5678,
+            "comm": "httpd",
+            "raw": "avc:  denied  { read } for pid=5678 comm=\"httpd\" ..."
+          }
+        ],
+        "total": 1,
+        "since": "24h",
+        "mode": "enforcing"
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "Structured fields let AI agents triage denials without parsing audit logs"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Supports time windows: '1h', '24h', 'recent', 'today', or absolute timestamps"
+    pause_after: 2.0
+
+  - type: comment
+    text: "Read-only. Safe for linux-mcp upstream."
+    pause_after: 2.0

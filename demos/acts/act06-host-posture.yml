@@ -1,0 +1,81 @@
+settings:
+  title: "Act 6 — Host Security Posture (enforcement-mcp)"
+  width: 110
+  height: 40
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Standalone: Host Posture"
+
+  - type: comment
+    text: "TIER 2 — enforcement-mcp standalone: composite + management tools"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Tool: host_posture — single-call security overview"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # AI agent gets full security posture in ONE tool call
+      python3 -c "
+      import json
+      print(json.dumps({
+          'selinux': {
+              'mode': 'enforcing',
+              'policy_type': 'targeted',
+              'denial_count_24h': 0,
+              'top_denied_types': [],
+              'custom_modules': ['abrt', 'accountsd', 'acct', 'apache', 'auditadm',
+                                 'authlogin', 'automount', 'avahi', 'base', 'bind']
+          },
+          'fapolicyd': {
+              'installed': False
+          },
+          'mls': {
+              'policy_type': 'targeted',
+              'sensitivities': ['s0'],
+              'category_count': 1024
+          },
+          'packages': {
+              'setools-console': '4.6.0-3.el10',
+              'selinux-policy': '42.1.18-4.el10_2'
+          },
+          'os': 'Red Hat Enterprise Linux release 10.2 (Coughlan)'
+      }, indent=2))
+      "
+    output: |
+      {
+        "selinux": {
+          "mode": "enforcing",
+          "policy_type": "targeted",
+          "denial_count_24h": 0,
+          "top_denied_types": [],
+          "custom_modules": ["abrt", "accountsd", "acct", "apache", "auditadm",
+                             "authlogin", "automount", "avahi", "base", "bind"]
+        },
+        "fapolicyd": {
+          "installed": false
+        },
+        "mls": {
+          "policy_type": "targeted",
+          "sensitivities": ["s0"],
+          "category_count": 1024
+        },
+        "packages": {
+          "setools-console": "4.6.0-3.el10",
+          "selinux-policy": "42.1.18-4.el10_2"
+        },
+        "os": "Red Hat Enterprise Linux release 10.2 (Coughlan)"
+      }
+    pause_after: 4.0
+
+  - type: comment
+    text: "Aggregates SELinux + fapolicyd + MLS + package versions in one call"
+    pause_after: 2.0
+
+  - type: comment
+    text: "Too opinionated for linux-mcp upstream — stays in enforcement-mcp"
+    pause_after: 2.0

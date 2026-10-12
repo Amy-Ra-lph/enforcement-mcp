@@ -1,0 +1,108 @@
+settings:
+  title: "Act 10 — MLS Categories (enforcement-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Standalone: MLS"
+
+  - type: comment
+    text: "MLS tools — user mappings, file levels, category labels"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      semanage login -l
+    output: |
+      Login Name           SELinux User         MLS/MCS Range        Service
+
+      __default__          unconfined_u         s0-s0:c0.c1023       *
+      root                 unconfined_u         s0-s0:c0.c1023       *
+    pause_after: 2.5
+
+  - type: comment
+    text: "Tool: mls_user_mappings — structured user-to-SELinux-user map"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      python3 -c "
+      import json
+      print(json.dumps({
+          'mappings': [
+              {'login': '__default__', 'selinux_user': 'unconfined_u', 'range': 's0-s0:c0.c1023'},
+              {'login': 'root', 'selinux_user': 'unconfined_u', 'range': 's0-s0:c0.c1023'}
+          ],
+          'total': 2
+      }, indent=2))
+      "
+    output: |
+      {
+        "mappings": [
+          {"login": "__default__", "selinux_user": "unconfined_u", "range": "s0-s0:c0.c1023"},
+          {"login": "root", "selinux_user": "unconfined_u", "range": "s0-s0:c0.c1023"}
+        ],
+        "total": 2
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "Tool: mls_file_level — sensitivity + categories for any path"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      python3 -c "
+      import json
+      print(json.dumps({
+          'target': '/etc/passwd',
+          'user': 'system_u',
+          'role': 'object_r',
+          'type': 'passwd_file_t',
+          'level': 's0',
+          'categories': []
+      }, indent=2))
+      "
+    output: |
+      {
+        "target": "/etc/passwd",
+        "user": "system_u",
+        "role": "object_r",
+        "type": "passwd_file_t",
+        "level": "s0",
+        "categories": []
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "Tool: mls_categories — sensitivity levels + 1024 categories available"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      seinfo --sensitivity 2>&1
+    output: |
+      Sensitivities: 1
+         s0
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      seinfo --category 2>&1 | head -5
+    output: |
+      Categories: 1024
+         c0
+         c1
+         c2
+         c3
+    pause_after: 2.0
+
+  - type: comment
+    text: "Specialized policy tools — MLS is niche, stays in enforcement-mcp"
+    pause_after: 2.0
+
+  - type: marker
+    label: "End of Arcade"

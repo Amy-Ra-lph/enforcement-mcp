@@ -1,0 +1,106 @@
+title: "enforcement-mcp"
+subtitle: "SELinux & Security Policy MCP — Read-Only + Management Tools"
+logo: ~/.claude/skills/powerpoint/redhat-logo-white.svg
+theme: rh-dark
+tagline: "Read-only diagnostics for linux-mcp. Policy management for enforcement-mcp."
+
+acts:
+  - title: "SELinux Status"
+    desc: "Enforcement mode, policy type, and MLS status at a glance"
+    cast: output/act01-selinux-status.cast
+    icon: shield
+    color: "#0066cc"
+    points:
+      - "getenforce + sestatus combined into structured JSON"
+      - "Detects enforcing, permissive, disabled, and MLS status"
+      - "Lightweight — linux-mcp contribution candidate"
+
+  - title: "Boolean Inventory"
+    desc: "All SELinux booleans with on/off state — filterable"
+    cast: output/act02-booleans.cast
+    icon: check
+    color: "#3e8635"
+    points:
+      - "314 booleans on a stock RHEL 10 system"
+      - "Returns structured data — AI agent can reason about misconfigurations"
+      - "Read-only — safe for linux-mcp upstream"
+
+  - title: "File Context Labels"
+    desc: "Get SELinux context for any file — detect label mismatches"
+    cast: output/act03-file-context.cast
+    icon: lock
+    color: "#6753ac"
+    points:
+      - "Shows expected vs actual context label"
+      - "Flags mismatches that cause silent denials"
+      - "Path validation prevents injection — safe for untrusted input"
+
+  - title: "AVC Denial Stream"
+    desc: "Parsed AVC denials from the audit log — structured for AI triage"
+    cast: output/act04-avc-denials.cast
+    icon: audit
+    color: "#c9190b"
+    points:
+      - "Raw ausearch output → structured JSON with source/target/class/permission"
+      - "Time-windowed: '1h', '24h', 'recent', or absolute timestamps"
+      - "Enables AI-driven denial triage without log parsing expertise"
+
+  - title: "Policy Query"
+    desc: "sesearch rules for any SELinux type — what's allowed and why"
+    cast: output/act05-policy-query.cast
+    icon: policy
+    color: "#ee0000"
+    points:
+      - "1152 rules for httpd_t on a stock RHEL 10 system"
+      - "AI agent can answer 'is httpd_t allowed to read user_home_t files?'"
+      - "Read-only sesearch — completes the diagnostic picture"
+
+  - title: "Host Security Posture"
+    desc: "Single-call composite: SELinux + fapolicyd + MLS overview"
+    cast: output/act06-host-posture.cast
+    icon: server
+    color: "#004080"
+    points:
+      - "Aggregates mode, denial count, custom modules, fapolicyd status, MLS"
+      - "AI agent gets full security posture in one tool call"
+      - "Standalone enforcement-mcp — too opinionated for upstream"
+
+  - title: "Denial Explain"
+    desc: "Root-cause analysis: boolean, policy gap, or constraint?"
+    cast: output/act07-denial-explain.cast
+    icon: scope
+    color: "#d93616"
+    points:
+      - "Given source→target→class→permission, explains WHY denied"
+      - "Checks booleans first, then policy rules, then constraints"
+      - "Requires sesearch + seinfo — standalone enforcement-mcp tool"
+
+  - title: "Troubleshoot"
+    desc: "Composite diagnostic chain — find the blocked operation"
+    cast: output/act08-troubleshoot.cast
+    icon: terminal
+    color: "#ec7a08"
+    points:
+      - "Input: symptom + optional process/path"
+      - "Walks SELinux → fapolicyd → MLS to find root cause"
+      - "Returns confidence level and diagnostic chain"
+
+  - title: "Boolean Management"
+    desc: "Set SELinux booleans with risk assessment — write operation"
+    cast: output/act09-boolean-management.cast
+    icon: key
+    color: "#3e8635"
+    points:
+      - "set_boolean with persistent or runtime-only option"
+      - "assess_risk pre-checks what the boolean enables before changing"
+      - "WRITE tool — never in linux-mcp, always enforcement-mcp"
+
+  - title: "MLS Categories"
+    desc: "Multi-Level Security user mappings and file labels"
+    cast: output/act10-mls.cast
+    icon: users
+    color: "#6753ac"
+    points:
+      - "User-to-SELinux-user mappings with MLS ranges"
+      - "File sensitivity levels and category labels"
+      - "Specialized policy type — standalone enforcement-mcp"

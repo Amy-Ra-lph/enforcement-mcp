@@ -1,0 +1,92 @@
+settings:
+  title: "Act 5 — Policy Query (linux-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Read-Only: Policy Query"
+
+  - type: comment
+    text: "Tool: policy_query — sesearch rules for any SELinux type"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      # Raw sesearch output — hard for an AI to parse
+      sesearch -A -s httpd_t -t user_home_t -c file 2>&1
+    output: |
+      allow daemon user_home_t:file { append getattr };
+      allow domain file_type:file map; [ domain_can_mmap_files ]:True
+      allow httpd_t user_home_t:file map; [ httpd_read_user_content ]:True
+      allow httpd_t user_home_type:file { getattr ioctl lock open read }; [ httpd_read_user_content ]:True
+    pause_after: 3.0
+
+  - type: comment
+    text: "MCP tool returns structured rules — 1152 rules for httpd_t on stock RHEL 10"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      python3 -c "
+      import json
+      print(json.dumps({
+          'source_type': 'httpd_t',
+          'rules': [
+              {
+                  'source': 'httpd_t',
+                  'target': 'user_home_t',
+                  'tclass': 'file',
+                  'permissions': ['map'],
+                  'conditional': 'httpd_read_user_content',
+                  'conditional_state': True
+              },
+              {
+                  'source': 'httpd_t',
+                  'target': 'user_home_type',
+                  'tclass': 'file',
+                  'permissions': ['getattr', 'ioctl', 'lock', 'open', 'read'],
+                  'conditional': 'httpd_read_user_content',
+                  'conditional_state': True
+              }
+          ],
+          'total_rules': 1152
+      }, indent=2))
+      "
+    output: |
+      {
+        "source_type": "httpd_t",
+        "rules": [
+          {
+            "source": "httpd_t",
+            "target": "user_home_t",
+            "tclass": "file",
+            "permissions": ["map"],
+            "conditional": "httpd_read_user_content",
+            "conditional_state": true
+          },
+          {
+            "source": "httpd_t",
+            "target": "user_home_type",
+            "tclass": "file",
+            "permissions": ["getattr", "ioctl", "lock", "open", "read"],
+            "conditional": "httpd_read_user_content",
+            "conditional_state": true
+          }
+        ],
+        "total_rules": 1152
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "AI agent can answer: 'httpd_t CAN read user_home_t IF httpd_read_user_content is on'"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Read-only sesearch. Completes the diagnostic picture. Safe for linux-mcp."
+    pause_after: 2.0
+
+  - type: marker
+    label: "End of Tier 1 — linux-mcp"

@@ -1,0 +1,81 @@
+settings:
+  title: "Act 1 — SELinux Status (linux-mcp)"
+  width: 110
+  height: 35
+  prompt: "$ "
+  type_speed: 0.035
+
+instructions:
+  - type: marker
+    label: "Read-Only: SELinux Status"
+
+  - type: comment
+    text: "TIER 1 — linux-mcp contribution: read-only diagnostic tools"
+    pause_after: 2.5
+
+  - type: comment
+    text: "Tool: get_selinux_status — combines getenforce + sestatus into structured JSON"
+    pause_after: 2.5
+
+  - type: command
+    run: |-
+      cat /etc/redhat-release
+    output: |
+      Red Hat Enterprise Linux release 10.2 (Coughlan)
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      getenforce
+    output: |
+      Enforcing
+    pause_after: 1.5
+
+  - type: command
+    run: |-
+      sestatus
+    output: |
+      SELinux status:                 enabled
+      SELinuxfs mount:                /sys/fs/selinux
+      SELinux root directory:         /etc/selinux
+      Loaded policy name:             targeted
+      Current mode:                   enforcing
+      Mode from config file:          enforcing
+      Policy MLS status:              enabled
+      Policy deny_unknown status:     allowed
+      Memory protection checking:     actual (secure)
+      Max kernel policy version:      33
+    pause_after: 2.5
+
+  - type: comment
+    text: "MCP tool returns structured JSON — AI agent can reason about security posture"
+    pause_after: 2.0
+
+  - type: command
+    run: |-
+      # What the AI agent receives:
+      python3 -c "
+      import json
+      print(json.dumps({
+          'mode': 'enforcing',
+          'policy': 'targeted',
+          'mls_status': 'enabled',
+          'policy_deny_unknown': 'allowed',
+          'memory_protection': 'actual (secure)',
+          'max_kernel_policy_version': '33'
+      }, indent=2))
+      "
+    output: |
+      {
+        "mode": "enforcing",
+        "policy": "targeted",
+        "mls_status": "enabled",
+        "policy_deny_unknown": "allowed",
+        "memory_protection": "actual (secure)",
+        "max_kernel_policy_version": "33"
+      }
+    pause_after: 3.0
+
+  - type: comment
+    text: "Read-only. No state changes. Safe for linux-mcp upstream."
+    pause_after: 2.0
