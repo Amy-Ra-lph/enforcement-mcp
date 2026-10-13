@@ -25,7 +25,14 @@ The `setup` command detects installed MCP clients and writes the config
 snippet for you. The `check` command SSHes to the target and reports
 which prerequisites are installed (setools-console, audit, fapolicyd, etc.).
 
-Or configure manually:
+Or start the server with a default target (no env var needed):
+
+```bash
+enforcement-mcp serve webserver01.example.com
+enforcement-mcp serve --transport sse webserver01.example.com
+```
+
+Or use environment variables:
 
 ```bash
 export ENFORCEMENT_MCP_TARGET=myhost.example.com
@@ -273,10 +280,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "enforcement-mcp": {
       "command": "enforcement-mcp",
-      "args": [],
-      "env": {
-        "ENFORCEMENT_MCP_TARGET": "myhost.example.com"
-      }
+      "args": ["serve", "myhost.example.com"]
     }
   }
 }
@@ -285,6 +289,17 @@ Add to your `claude_desktop_config.json`:
 ### Claude Code
 
 Add to your MCP settings or `.mcp.json`:
+
+```json
+{
+  "enforcement-mcp": {
+    "command": "enforcement-mcp",
+    "args": ["serve", "myhost.example.com"]
+  }
+}
+```
+
+The default target can also be set via env var instead of args:
 
 ```json
 {
@@ -366,10 +381,7 @@ Or configure manually:
 {
   "enforcement-mcp": {
     "command": "enforcement-mcp",
-    "args": [],
-    "env": {
-      "ENFORCEMENT_MCP_TARGET": "webserver01.example.com"
-    }
+    "args": ["serve", "webserver01.example.com"]
   }
 }
 ```
@@ -381,10 +393,7 @@ Or configure manually:
   "mcpServers": {
     "enforcement-mcp": {
       "command": "enforcement-mcp",
-      "args": [],
-      "env": {
-        "ENFORCEMENT_MCP_TARGET": "webserver01.example.com"
-      }
+      "args": ["serve", "webserver01.example.com"]
     }
   }
 }
@@ -403,34 +412,116 @@ Talk to your AI assistant in natural language:
 | "Enable that boolean, it's low risk" | `set_boolean` with `dry_run=false` → applied + verified |
 | "New binary in /opt won't execute" | `fapolicyd_trust_check` → not trusted → `generate_playbook` or `fapolicyd_trust_add` |
 
-### Switching hosts
+### Multi-host: switching targets per call
 
-Change the target by updating the env var — no reconfiguration needed:
+Every SSH-connected tool accepts an optional `target` parameter.
+Point at any host without restarting the server:
 
-```bash
-export ENFORCEMENT_MCP_TARGET=dbserver02.example.com
+```json
+{
+  "tool": "diagnosis.host_posture",
+  "arguments": {
+    "target": "kvm-03-guest29.lab.eng.rdu2.redhat.com"
+  }
+}
 ```
 
-Or run multiple instances for different hosts in parallel.
+Then check a different host in the same session:
 
-### Offline mode: log aggregator integration
+```json
+{
+  "tool": "diagnosis.host_posture",
+  "arguments": {
+    "target": "kvm-04-guest25.lab.eng.rdu2.redhat.com"
+  }
+}
+```
 
-If your denial logs are already in Splunk, ELK, or Loki, you don't need
-SSH at all. Pull the raw text from your aggregator and pass it directly:
+Target formats:
+
+| Format | Example |
+|--------|---------|
+| Hostname | `webserver01.example.com` |
+| User@host | `admin@webserver01.example.com` |
+| Host:port | `webserver01.example.com:2222` |
+| User@host:port | `admin@webserver01.example.com:2222` |
+
+SSH credentials (user, port, key file) come from environment variables
+for any parts not specified in the target string. Connections are pooled —
+the server reuses an existing SSH connection when the same target is used again.
+
+If you omit `target`, the server uses its default (from CLI `--target` arg
+or `ENFORCEMENT_MCP_TARGET` env var).
+
+### Offline mode: analyzing log files
+
+You don't need SSH to diagnose denials from log files. Three approaches:
+
+**1. Parse raw denial text (any source)**
+
+Feed `ausearch` output, raw `audit.log` lines, or SIEM-exported records
+directly to `parse_denials`:
 
 ```json
 {
   "tool": "diagnosis.parse_denials",
   "arguments": {
-    "raw_text": "type=AVC msg=audit(...): avc: denied { read } for ..."
+    "raw_text": "type=AVC msg=audit(1697051234.567:890): avc:  denied  { read } for  pid=1234 comm=\"httpd\" name=\"index.html\" dev=\"sda1\" ino=56789 scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file permissive=0"
   }
 }
 ```
 
-Works with `avc_denials(raw_text=...)`, `fapolicyd_denials(raw_text=...)`,
-and `troubleshoot(raw_avc_text=...)` too. An agent using both a Splunk MCP
-and enforcement-mcp can pull denials from the aggregator and analyze them
-without ever touching the target host.
+Returns structured JSON with parsed fields, summary statistics, and
+auto-detection of AVC vs FANOTIFY denial types.
+
+**2. Troubleshoot from log text (full diagnosis)**
+
+For a complete diagnosis — root cause, explanation, and fix suggestions —
+pass log text to `troubleshoot`:
+
+```json
+{
+  "tool": "diagnosis.troubleshoot",
+  "arguments": {
+    "symptom": "httpd blocked from serving user home directories",
+    "raw_avc_text": "type=AVC msg=audit(...): avc:  denied  { read } for  pid=1234 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file"
+  }
+}
+```
+
+This runs the full troubleshooting pipeline offline — root cause analysis,
+boolean detection, fix alternatives — without SSH.
+
+**3. Feed denial-specific tools**
+
+`avc_denials` and `fapolicyd_denials` also accept `raw_text` for offline parsing:
+
+```json
+{
+  "tool": "diagnosis.avc_denials",
+  "arguments": {
+    "raw_text": "<paste audit.log content or ausearch output here>"
+  }
+}
+```
+
+**Getting the log data:**
+
+```bash
+# Grab recent AVC denials from a host
+ssh root@webserver01 'ausearch -m AVC -ts recent' > /tmp/denials.txt
+
+# Or from audit.log directly
+ssh root@webserver01 'grep "avc:  denied" /var/log/audit/audit.log' > /tmp/denials.txt
+
+# Or from journalctl (fapolicyd)
+ssh root@webserver01 'journalctl -u fapolicyd --since "1 hour ago"' > /tmp/denials.txt
+```
+
+Then paste the contents as `raw_text` or `raw_avc_text`. An agent with
+access to both a log aggregator MCP (Splunk, ELK, Loki) and enforcement-mcp
+can pull denials from the aggregator and analyze them without ever
+touching the target host.
 
 ## Safety model
 
