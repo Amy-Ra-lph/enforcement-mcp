@@ -2,7 +2,7 @@
 
 import argparse
 
-__version__ = "0.4.0"
+__version__ = "0.5.1"
 
 
 def main() -> None:
@@ -14,6 +14,11 @@ def main() -> None:
 
     # Default: run the MCP server (also when no subcommand given)
     serve_parser = sub.add_parser("serve", help="Run the MCP server (default)")
+    serve_parser.add_argument(
+        "target",
+        nargs="?",
+        help="Default target RHEL host (overrides ENFORCEMENT_MCP_TARGET env var)",
+    )
     serve_parser.add_argument(
         "--transport",
         choices=["stdio", "sse", "streamable-http"],
@@ -49,7 +54,11 @@ def main() -> None:
 
 
 def _run_server(args: argparse.Namespace) -> None:
-    from .server import mcp
+    from .server import mcp, set_default_target
+
+    target = getattr(args, "target", None)
+    if target:
+        set_default_target(target)
 
     transport = getattr(args, "transport", "stdio")
     if transport == "stdio":

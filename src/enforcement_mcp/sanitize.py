@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 import shlex
 
+_LABEL = r"[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?"
+HOSTNAME_RE = re.compile(rf"^{_LABEL}(\.{_LABEL})*$")
 IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.-]*$")
 SELINUX_TYPE_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 MLS_RANGE_RE = re.compile(r"^s\d+(-s\d+)?(:[cC]\d+([.,][cC]?\d+)*)?$")
@@ -155,6 +157,28 @@ def sanitize_cil(cil: str, param_name: str = "cil") -> str:
                 f"Line {i + 1} contains shell metacharacters outside CIL syntax",
             )
     return cil
+
+
+def sanitize_hostname(hostname: str, param_name: str = "target") -> str:
+    if not hostname:
+        raise SanitizationError(param_name, "", "Must not be empty")
+    if len(hostname) > 253:
+        raise SanitizationError(param_name, hostname, "Hostname too long (max 253 chars)")
+    if not HOSTNAME_RE.match(hostname):
+        raise SanitizationError(
+            param_name, hostname, "Must be a valid hostname or FQDN"
+        )
+    return hostname
+
+
+def sanitize_username(user: str, param_name: str = "user") -> str:
+    if not user:
+        raise SanitizationError(param_name, "", "Must not be empty")
+    if not IDENTIFIER_RE.match(user):
+        raise SanitizationError(
+            param_name, user, "Must be a valid username (alphanumeric, underscore, hyphen, dot)"
+        )
+    return user
 
 
 def quote_arg(value: str) -> str:

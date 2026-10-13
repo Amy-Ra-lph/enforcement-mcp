@@ -7,6 +7,7 @@ from enforcement_mcp.sanitize import (
     quote_arg,
     sanitize_cil,
     sanitize_context_path,
+    sanitize_hostname,
     sanitize_identifier,
     sanitize_login,
     sanitize_mls_categories,
@@ -16,6 +17,7 @@ from enforcement_mcp.sanitize import (
     sanitize_selinux_class,
     sanitize_selinux_permission,
     sanitize_selinux_type,
+    sanitize_username,
 )
 
 
@@ -263,3 +265,89 @@ class TestSanitizationError:
     def test_long_value_preview(self):
         err = SanitizationError("cil", "x" * 100, "too long")
         assert len(err.value_preview) == 50
+
+
+class TestSanitizeHostname:
+    def test_simple_hostname(self):
+        assert sanitize_hostname("webserver01") == "webserver01"
+
+    def test_fqdn(self):
+        assert sanitize_hostname("kvm-03-guest29.lab.eng.rdu2.redhat.com") == "kvm-03-guest29.lab.eng.rdu2.redhat.com"
+
+    def test_fqdn_with_dc(self):
+        assert sanitize_hostname("kvm-03-guest21.lab.eng.rdu2.dc.redhat.com") == "kvm-03-guest21.lab.eng.rdu2.dc.redhat.com"
+
+    def test_empty_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_hostname("")
+
+    def test_shell_injection_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_hostname("host; whoami")
+
+    def test_backtick_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_hostname("host`id`")
+
+    def test_too_long_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_hostname("a" * 254)
+
+    def test_leading_hyphen_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_hostname("-badhost")
+
+    def test_trailing_hyphen_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_hostname("badhost-")
+
+
+class TestSanitizeUsername:
+    def test_root(self):
+        assert sanitize_username("root") == "root"
+
+    def test_regular_user(self):
+        assert sanitize_username("afarley") == "afarley"
+
+    def test_empty_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_username("")
+
+    def test_injection_rejected(self):
+        with pytest.raises(SanitizationError):
+            sanitize_username("root; id")
+
+
+class TestParseTargetString:
+    """Tests for config.parse_target_string."""
+
+    def test_hostname_only(self):
+        from enforcement_mcp.config import parse_target_string
+        config = parse_target_string("kvm-03-guest29.lab.eng.rdu2.redhat.com")
+        assert config.host == "kvm-03-guest29.lab.eng.rdu2.redhat.com"
+        assert config.user == "root"
+        assert config.port == 22
+
+    def test_user_at_hostname(self):
+        from enforcement_mcp.config import parse_target_string
+        config = parse_target_string("admin@webserver01.example.com")
+        assert config.host == "webserver01.example.com"
+        assert config.user == "admin"
+
+    def test_hostname_with_port(self):
+        from enforcement_mcp.config import parse_target_string
+        config = parse_target_string("webserver01.example.com:2222")
+        assert config.host == "webserver01.example.com"
+        assert config.port == 2222
+
+    def test_user_at_hostname_with_port(self):
+        from enforcement_mcp.config import parse_target_string
+        config = parse_target_string("admin@webserver01.example.com:2222")
+        assert config.host == "webserver01.example.com"
+        assert config.user == "admin"
+        assert config.port == 2222
+
+    def test_injection_in_hostname_rejected(self):
+        from enforcement_mcp.config import parse_target_string
+        with pytest.raises(SanitizationError):
+            parse_target_string("host; whoami")

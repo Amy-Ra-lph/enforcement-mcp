@@ -19,8 +19,7 @@ def cmd_setup(target: str | None = None) -> None:
 
     snippet = {
         "command": "enforcement-mcp",
-        "args": [],
-        "env": {"ENFORCEMENT_MCP_TARGET": target},
+        "args": ["serve", target],
     }
 
     clients = _detect_clients()

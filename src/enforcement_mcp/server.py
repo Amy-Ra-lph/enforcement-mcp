@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
     name="enforcement-mcp",
-    version="0.4.0",
+    version="0.5.1",
     instructions=(
         "SELinux, fapolicyd, and MLS policy intelligence for RHEL systems. "
         "Use diagnosis.troubleshoot as the primary entry point when something is blocked. "
@@ -60,27 +60,57 @@ mcp = FastMCP(
         "and troubleshoot(raw_avc_text=/raw_fanotify_text=) support offline analysis "
         "from log aggregators without SSH. "
         "All tools return structured JSON. "
+        "All SSH-connected tools accept an optional 'target' parameter to specify "
+        "which RHEL host to analyze (e.g. 'webserver01.example.com' or 'root@host:22'). "
+        "If target is omitted, the server's default target is used. "
         "Management tools accept an optional identity_token for RBAC enforcement. "
         "When SELinux is disabled or fapolicyd is not installed, tools return clear error objects."
     ),
 )
 
-_ssh: SSHBackend | None = None
+TargetParam = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Target RHEL host to analyze. Overrides the default for this call. "
+            "Accepts: hostname, user@hostname, hostname:port, user@hostname:port. "
+            "Examples: 'webserver01.example.com', 'root@db01.example.com:22'"
+        ),
+    ),
+]
+
+_default_target: str | None = None
+_ssh_pool: dict[str, SSHBackend] = {}
 _identity_config: IdentityConfig | None = None
 
 
-async def _get_ssh() -> SSHBackend:
-    global _ssh
-    if _ssh is None:
-        config = get_host_config()
-        _ssh = SSHBackend(
-            host=config.host,
-            user=config.user,
-            port=config.port,
-            key_file=config.key_file,
-        )
-        await _ssh.connect()
-    return _ssh
+def set_default_target(target: str) -> None:
+    """Set the default SSH target (called from CLI --target)."""
+    global _default_target
+    _default_target = target
+
+
+async def _get_ssh(target: str | None = None) -> SSHBackend:
+    """Get SSH connection for a target, with connection pooling.
+
+    Resolution order: explicit target > CLI default > env var.
+    """
+    resolved = target or _default_target
+    pool_key = resolved or "__env__"
+
+    if pool_key in _ssh_pool:
+        return _ssh_pool[pool_key]
+
+    config = get_host_config(resolved)
+    ssh = SSHBackend(
+        host=config.host,
+        user=config.user,
+        port=config.port,
+        key_file=config.key_file,
+    )
+    await ssh.connect()
+    _ssh_pool[pool_key] = ssh
+    return ssh
 
 
 def _get_identity_config() -> IdentityConfig:
@@ -94,6 +124,7 @@ async def _verify_and_authorize(
     tool_name: str,
     identity_token: str | None,
     params: dict,
+    target: str | None = None,
 ) -> tuple[CallerIdentity, dict | None]:
     cfg = _get_identity_config()
     try:
@@ -113,7 +144,7 @@ async def _verify_and_authorize(
 
     authz = check_authorization(caller, tool_name, cfg.authz_policy)
     if not authz["authorized"]:
-        ssh = await _get_ssh()
+        ssh = await _get_ssh(target)
         await write_audit_entry(
             ssh,
             caller=caller,
@@ -138,9 +169,10 @@ async def _audit_result(
     tool_name: str,
     params: dict,
     result: dict,
+    target: str | None = None,
 ) -> None:
     cfg = _get_identity_config()
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     risk_score = result.get("risk_assessment", {}).get("risk_score") or result.get("risk_score")
     risk_level = result.get("risk_assessment", {}).get("risk_level") or result.get("risk_level")
     status = result.get("status", result.get("error", "success"))
@@ -175,10 +207,11 @@ async def tool_troubleshoot(
         str | None,
         Field(description="Raw FANOTIFY denial text for offline analysis (from log aggregator or audit.log)"),
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Diagnose why something is blocked. Pass raw_avc_text/raw_fanotify_text for offline analysis from log aggregators, or omit to query a live host via SSH."""
     offline = raw_avc_text is not None or raw_fanotify_text is not None
-    ssh = None if offline else await _get_ssh()
+    ssh = None if offline else await _get_ssh(target)
     return await troubleshoot(
         ssh, symptom=symptom, process=process, path=path,
         raw_avc_text=raw_avc_text, raw_fanotify_text=raw_fanotify_text,
@@ -186,9 +219,11 @@ async def tool_troubleshoot(
 
 
 @mcp.tool(name="diagnosis.host_posture")
-async def tool_host_posture() -> dict:
+async def tool_host_posture(
+    target: TargetParam = None,
+) -> dict:
     """Comprehensive security posture summary — SELinux, fapolicyd, MLS, with a 0-100 score."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await host_posture(ssh)
 
 
@@ -204,9 +239,10 @@ async def tool_avc_denials(
         str | None,
         Field(description="Raw AVC denial text (from log aggregator, SIEM, or audit.log). If provided, parses this instead of querying via SSH."),
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Get SELinux AVC denials. Pass raw_text for offline analysis from log aggregators, or omit to query a live host via SSH."""
-    ssh = None if raw_text else await _get_ssh()
+    ssh = None if raw_text else await _get_ssh(target)
     return await avc_denials(ssh, since=since, source_type=source_type, raw_text=raw_text)
 
 
@@ -219,48 +255,54 @@ async def tool_policy_query(
     permission: Annotated[
         str | None, Field(description="Permission filter, e.g. 'read', 'name_connect'")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Query SELinux allow rules for a source type."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await policy_query(ssh, source_type=source_type, tclass=tclass, permission=permission)
 
 
 @mcp.tool(name="diagnosis.boolean_list")
 async def tool_boolean_list(
     filter: Annotated[str | None, Field(description="Substring filter, e.g. 'httpd'")] = None,
+    target: TargetParam = None,
 ) -> dict:
     """List SELinux booleans with current state."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await boolean_list(ssh, filter_str=filter)
 
 
 @mcp.tool(name="diagnosis.file_context")
 async def tool_file_context(
     path: Annotated[str, Field(description="Filesystem path to check, e.g. '/var/www/html'")],
+    target: TargetParam = None,
 ) -> dict:
     """Check expected vs actual SELinux file context. Detects mismatches."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await file_context(ssh, path=path)
 
 
 @mcp.tool(name="diagnosis.denial_explain")
 async def tool_denial_explain(
     source: Annotated[str, Field(description="Source SELinux type, e.g. 'httpd_t'")],
-    target: Annotated[str, Field(description="Target SELinux type, e.g. 'user_home_t'")],
+    target_type: Annotated[str, Field(description="Target SELinux type, e.g. 'user_home_t'")],
     tclass: Annotated[str, Field(description="Object class, e.g. 'file', 'dir'")],
     permission: Annotated[str, Field(description="Permission, e.g. 'read', 'write'")],
+    target: TargetParam = None,
 ) -> dict:
     """Explain why a specific SELinux denial happened."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await denial_explain(
-        ssh, source=source, target=target, tclass=tclass, permission=permission
+        ssh, source=source, target=target_type, tclass=tclass, permission=permission
     )
 
 
 @mcp.tool(name="diagnosis.fapolicyd_status")
-async def tool_fapolicyd_status() -> dict:
+async def tool_fapolicyd_status(
+    target: TargetParam = None,
+) -> dict:
     """Get fapolicyd daemon status, rule count, and trust DB size."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await fapolicyd_status(ssh)
 
 
@@ -271,32 +313,38 @@ async def tool_fapolicyd_denials(
         str | None,
         Field(description="Raw FANOTIFY denial text (from log aggregator or audit.log). If provided, parses this instead of querying via SSH."),
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Get fapolicyd FANOTIFY denials. Pass raw_text for offline analysis, or omit to query a live host."""
-    ssh = None if raw_text else await _get_ssh()
+    ssh = None if raw_text else await _get_ssh(target)
     return await fapolicyd_denials(ssh, since=since, raw_text=raw_text)
 
 
 @mcp.tool(name="diagnosis.fapolicyd_trust_check")
 async def tool_fapolicyd_trust_check(
     path: Annotated[str, Field(description="Full path to binary, e.g. '/tmp/suspicious_binary'")],
+    target: TargetParam = None,
 ) -> dict:
     """Check whether a specific binary is trusted by fapolicyd."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await fapolicyd_trust_check(ssh, path=path)
 
 
 @mcp.tool(name="diagnosis.fapolicyd_rules")
-async def tool_fapolicyd_rules() -> dict:
+async def tool_fapolicyd_rules(
+    target: TargetParam = None,
+) -> dict:
     """Get current fapolicyd rule set."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await fapolicyd_rules(ssh)
 
 
 @mcp.tool(name="diagnosis.mls_user_mappings")
-async def tool_mls_user_mappings() -> dict:
+async def tool_mls_user_mappings(
+    target: TargetParam = None,
+) -> dict:
     """Get user-to-SELinux-user mappings with MLS/MCS ranges."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await mls_user_mappings(ssh)
 
 
@@ -304,16 +352,19 @@ async def tool_mls_user_mappings() -> dict:
 async def tool_mls_file_level(
     path: Annotated[str | None, Field(description="File path to check")] = None,
     pid: Annotated[int | None, Field(description="Process ID to check")] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Get MLS level and categories of a file or process."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await mls_file_level(ssh, path=path, pid=pid)
 
 
 @mcp.tool(name="diagnosis.mls_categories")
-async def tool_mls_categories() -> dict:
+async def tool_mls_categories(
+    target: TargetParam = None,
+) -> dict:
     """Get defined MLS sensitivities and categories."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await mls_categories(ssh)
 
 
@@ -338,16 +389,19 @@ async def tool_parse_denials(
 @mcp.tool(name="diagnosis.cve_exposure")
 async def tool_cve_exposure(
     cve: Annotated[str, Field(description="CVE ID, e.g. 'CVE-2024-6387'")],
+    target: TargetParam = None,
 ) -> dict:
     """Assess current policy effectiveness against a CVE's exploit chain. Maps CVE to ATT&CK techniques and checks which steps SELinux blocks."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await cve_exposure(ssh, cve_id=cve)
 
 
 @mcp.tool(name="diagnosis.active_containments")
-async def tool_active_containments() -> dict:
+async def tool_active_containments(
+    target: TargetParam = None,
+) -> dict:
     """List temporary CVE containment modules currently in effect, with patch status."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     return await active_containments(ssh)
 
 
@@ -384,9 +438,10 @@ async def tool_generate_playbook(
     action: Annotated[
         str | None, Field(description="'investigate' or 'accept' (aide_change)")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Generate an Ansible remediation playbook using linux-system-roles. Read-only: returns YAML text with risk assessment, never executes. Ranks fix options from narrowest scope to broadest."""
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     params: dict = {}
     for key, val in [
         ("source_type", source_type), ("target_type", target_type),
@@ -419,13 +474,14 @@ async def tool_assess_risk(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Pre-change risk assessment. Returns 0-100 risk score with blast radius, reversibility, and alternatives."""
     tool_params = {"change_type": change_type, "name": name, "value": value}
-    caller, err = await _verify_and_authorize("manage.assess_risk", identity_token, tool_params)
+    caller, err = await _verify_and_authorize("manage.assess_risk", identity_token, tool_params, target)
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     params: dict = {}
     if name is not None:
         params["name"] = name
@@ -440,7 +496,7 @@ async def tool_assess_risk(
     if is_containment:
         params["is_containment"] = is_containment
     result = await assess_risk(ssh, change_type=change_type, **params)
-    await _audit_result(caller, "manage.assess_risk", tool_params, result)
+    await _audit_result(caller, "manage.assess_risk", tool_params, result, target)
     return result
 
 
@@ -456,15 +512,16 @@ async def tool_cve_contain(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Generate targeted containment options for a CVE. Maps exploit chain, identifies policy gaps, generates CIL modules with risk assessment. Does NOT auto-apply."""
     tool_params = {"cve": cve, "strategy": strategy}
-    caller, err = await _verify_and_authorize("manage.cve_contain", identity_token, tool_params)
+    caller, err = await _verify_and_authorize("manage.cve_contain", identity_token, tool_params, target)
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await cve_contain(ssh, cve_id=cve, strategy=strategy)
-    await _audit_result(caller, "manage.cve_contain", tool_params, result)
+    await _audit_result(caller, "manage.cve_contain", tool_params, result, target)
     return result
 
 
@@ -474,17 +531,18 @@ async def tool_containment_expire(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Check if a CVE containment module can be safely removed (patch applied). Returns removal command if safe."""
     tool_params = {"cve": cve}
     caller, err = await _verify_and_authorize(
-        "manage.containment_expire", identity_token, tool_params
+        "manage.containment_expire", identity_token, tool_params, target
     )
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await containment_expire(ssh, cve_id=cve)
-    await _audit_result(caller, "manage.containment_expire", tool_params, result)
+    await _audit_result(caller, "manage.containment_expire", tool_params, result, target)
     return result
 
 
@@ -502,15 +560,16 @@ async def tool_set_boolean(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Toggle an SELinux boolean. Returns risk assessment and preview. Set dry_run=false to apply."""
     tool_params = {"name": name, "value": value, "persistent": persistent, "dry_run": dry_run}
-    caller, err = await _verify_and_authorize("manage.set_boolean", identity_token, tool_params)
+    caller, err = await _verify_and_authorize("manage.set_boolean", identity_token, tool_params, target)
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await set_boolean(ssh, name=name, value=value, persistent=persistent, dry_run=dry_run)
-    await _audit_result(caller, "manage.set_boolean", tool_params, result)
+    await _audit_result(caller, "manage.set_boolean", tool_params, result, target)
     return result
 
 
@@ -526,17 +585,18 @@ async def tool_generate_module(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Generate a CIL module from recent AVC denials. Compares to boolean alternatives. Does NOT auto-load."""
     tool_params = {"name": name, "from_denials": from_denials, "source_type": source_type}
-    caller, err = await _verify_and_authorize("manage.generate_module", identity_token, tool_params)
+    caller, err = await _verify_and_authorize("manage.generate_module", identity_token, tool_params, target)
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await generate_module(
         ssh, name=name, from_denials=from_denials, source_type=source_type
     )
-    await _audit_result(caller, "manage.generate_module", tool_params, result)
+    await _audit_result(caller, "manage.generate_module", tool_params, result, target)
     return result
 
 
@@ -550,15 +610,16 @@ async def tool_load_module(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Load a CIL policy module into the running SELinux policy. Set dry_run=false to apply."""
     tool_params = {"name": name, "dry_run": dry_run}
-    caller, err = await _verify_and_authorize("manage.load_module", identity_token, tool_params)
+    caller, err = await _verify_and_authorize("manage.load_module", identity_token, tool_params, target)
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await load_module(ssh, name=name, cil=cil, dry_run=dry_run)
-    await _audit_result(caller, "manage.load_module", tool_params, result)
+    await _audit_result(caller, "manage.load_module", tool_params, result, target)
     return result
 
 
@@ -571,15 +632,16 @@ async def tool_remove_module(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Remove a loaded SELinux policy module. Set dry_run=false to apply."""
     tool_params = {"name": name, "dry_run": dry_run}
-    caller, err = await _verify_and_authorize("manage.remove_module", identity_token, tool_params)
+    caller, err = await _verify_and_authorize("manage.remove_module", identity_token, tool_params, target)
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await remove_module(ssh, name=name, dry_run=dry_run)
-    await _audit_result(caller, "manage.remove_module", tool_params, result)
+    await _audit_result(caller, "manage.remove_module", tool_params, result, target)
     return result
 
 
@@ -595,17 +657,18 @@ async def tool_set_file_context(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Add a persistent file context rule and relabel. Set dry_run=false to apply."""
     tool_params = {"path": path, "context_type": context_type, "dry_run": dry_run}
     caller, err = await _verify_and_authorize(
-        "manage.set_file_context", identity_token, tool_params
+        "manage.set_file_context", identity_token, tool_params, target
     )
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await set_file_context(ssh, path=path, context_type=context_type, dry_run=dry_run)
-    await _audit_result(caller, "manage.set_file_context", tool_params, result)
+    await _audit_result(caller, "manage.set_file_context", tool_params, result, target)
     return result
 
 
@@ -619,17 +682,18 @@ async def tool_fapolicyd_trust_add(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Add a binary to fapolicyd ancillary trust. Checks setuid, location risk. Set dry_run=false to apply."""
     tool_params = {"path": path, "reason": reason, "dry_run": dry_run}
     caller, err = await _verify_and_authorize(
-        "manage.fapolicyd_trust_add", identity_token, tool_params
+        "manage.fapolicyd_trust_add", identity_token, tool_params, target
     )
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await fapolicyd_trust_add(ssh, path=path, reason=reason, dry_run=dry_run)
-    await _audit_result(caller, "manage.fapolicyd_trust_add", tool_params, result)
+    await _audit_result(caller, "manage.fapolicyd_trust_add", tool_params, result, target)
     return result
 
 
@@ -642,17 +706,18 @@ async def tool_fapolicyd_trust_remove(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Remove a binary from fapolicyd trust. Set dry_run=false to apply."""
     tool_params = {"path": path, "dry_run": dry_run}
     caller, err = await _verify_and_authorize(
-        "manage.fapolicyd_trust_remove", identity_token, tool_params
+        "manage.fapolicyd_trust_remove", identity_token, tool_params, target
     )
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await fapolicyd_trust_remove(ssh, path=path, dry_run=dry_run)
-    await _audit_result(caller, "manage.fapolicyd_trust_remove", tool_params, result)
+    await _audit_result(caller, "manage.fapolicyd_trust_remove", tool_params, result, target)
     return result
 
 
@@ -667,6 +732,7 @@ async def tool_mls_assign_category(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Assign MLS categories to files. Set dry_run=false to apply."""
     tool_params = {
@@ -676,15 +742,15 @@ async def tool_mls_assign_category(
         "dry_run": dry_run,
     }
     caller, err = await _verify_and_authorize(
-        "manage.mls_assign_category", identity_token, tool_params
+        "manage.mls_assign_category", identity_token, tool_params, target
     )
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await mls_assign_category(
         ssh, path=path, categories=categories, recursive=recursive, dry_run=dry_run
     )
-    await _audit_result(caller, "manage.mls_assign_category", tool_params, result)
+    await _audit_result(caller, "manage.mls_assign_category", tool_params, result, target)
     return result
 
 
@@ -698,15 +764,16 @@ async def tool_mls_set_user_range(
     identity_token: Annotated[
         str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
     ] = None,
+    target: TargetParam = None,
 ) -> dict:
     """Modify a user's MLS range. Hard-blocks root range restriction. Set dry_run=false to apply."""
     tool_params = {"login": login, "range_spec": range_spec, "dry_run": dry_run}
     caller, err = await _verify_and_authorize(
-        "manage.mls_set_user_range", identity_token, tool_params
+        "manage.mls_set_user_range", identity_token, tool_params, target
     )
     if err:
         return err
-    ssh = await _get_ssh()
+    ssh = await _get_ssh(target)
     result = await mls_set_user_range(ssh, login=login, range_spec=range_spec, dry_run=dry_run)
-    await _audit_result(caller, "manage.mls_set_user_range", tool_params, result)
+    await _audit_result(caller, "manage.mls_set_user_range", tool_params, result, target)
     return result

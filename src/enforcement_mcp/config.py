@@ -5,6 +5,7 @@ import os
 from pydantic import BaseModel
 
 from .models.identity import AuthzPolicy, IdentityMode
+from .sanitize import sanitize_hostname, sanitize_username
 
 
 class HostConfig(BaseModel):
@@ -28,13 +29,41 @@ class IdentityConfig(BaseModel):
     spiffe_socket: str = ""
 
 
-def get_host_config() -> HostConfig:
-    """Read host configuration from environment variables."""
+def parse_target_string(target: str) -> HostConfig:
+    """Parse 'user@host:port' into HostConfig.
+
+    Supports: hostname, user@hostname, hostname:port, user@hostname:port.
+    SSH user/port/key_file fall back to env vars for unspecified parts.
+    """
+    user = os.environ.get("ENFORCEMENT_MCP_USER", "root")
+    port = int(os.environ.get("ENFORCEMENT_MCP_PORT", "22"))
+    key_file = os.environ.get("ENFORCEMENT_MCP_KEY_FILE")
+
+    host = target
+    if "@" in target:
+        user, host = target.rsplit("@", 1)
+        sanitize_username(user)
+    if ":" in host:
+        host, port_str = host.rsplit(":", 1)
+        port = int(port_str)
+    sanitize_hostname(host)
+
+    return HostConfig(host=host, user=user, port=port, key_file=key_file)
+
+
+def get_host_config(target: str | None = None) -> HostConfig:
+    """Resolve host configuration.
+
+    Priority: explicit target > ENFORCEMENT_MCP_TARGET env > ENFORCEMENT_MCP_HOST env.
+    """
+    if target:
+        return parse_target_string(target)
+
     host = os.environ.get("ENFORCEMENT_MCP_TARGET") or os.environ.get("ENFORCEMENT_MCP_HOST", "")
     if not host:
         raise ValueError(
-            "ENFORCEMENT_MCP_TARGET environment variable is required "
-            "(the remote RHEL host to analyze)"
+            "No target specified. Pass a target parameter on the tool call, "
+            "use --target on the serve command, or set ENFORCEMENT_MCP_TARGET."
         )
     return HostConfig(
         host=host,
