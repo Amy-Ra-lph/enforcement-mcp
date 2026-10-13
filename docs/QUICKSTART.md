@@ -421,7 +421,7 @@ Point at any host without restarting the server:
 {
   "tool": "diagnosis.host_posture",
   "arguments": {
-    "target": "kvm-03-guest29.lab.eng.rdu2.redhat.com"
+    "target": "webserver01.example.com"
   }
 }
 ```
@@ -432,7 +432,7 @@ Then check a different host in the same session:
 {
   "tool": "diagnosis.host_posture",
   "arguments": {
-    "target": "kvm-04-guest25.lab.eng.rdu2.redhat.com"
+    "target": "dbserver02.example.com"
   }
 }
 ```

@@ -272,10 +272,10 @@ class TestSanitizeHostname:
         assert sanitize_hostname("webserver01") == "webserver01"
 
     def test_fqdn(self):
-        assert sanitize_hostname("kvm-03-guest29.lab.eng.rdu2.redhat.com") == "kvm-03-guest29.lab.eng.rdu2.redhat.com"
+        assert sanitize_hostname("webserver01.example.com") == "webserver01.example.com"
 
-    def test_fqdn_with_dc(self):
-        assert sanitize_hostname("kvm-03-guest21.lab.eng.rdu2.dc.redhat.com") == "kvm-03-guest21.lab.eng.rdu2.dc.redhat.com"
+    def test_fqdn_deep(self):
+        assert sanitize_hostname("app01.dc1.us-east.example.com") == "app01.dc1.us-east.example.com"
 
     def test_empty_rejected(self):
         with pytest.raises(SanitizationError):
@@ -323,8 +323,8 @@ class TestParseTargetString:
 
     def test_hostname_only(self):
         from enforcement_mcp.config import parse_target_string
-        config = parse_target_string("kvm-03-guest29.lab.eng.rdu2.redhat.com")
-        assert config.host == "kvm-03-guest29.lab.eng.rdu2.redhat.com"
+        config = parse_target_string("webserver01.example.com")
+        assert config.host == "webserver01.example.com"
         assert config.user == "root"
         assert config.port == 22
 
