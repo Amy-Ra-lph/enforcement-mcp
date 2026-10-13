@@ -1,6 +1,7 @@
 """FastMCP server setup for enforcement-mcp."""
 
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastmcp import FastMCP
@@ -78,6 +79,38 @@ TargetParam = Annotated[
         ),
     ),
 ]
+
+LogFileParam = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Path to a local log file containing denial records "
+            "(audit.log, ausearch output, SIEM export, etc.). "
+            "The file is read and its contents used for offline analysis. "
+            "Mutually exclusive with raw_text/raw_avc_text parameters."
+        ),
+    ),
+]
+
+MAX_LOG_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _read_log_file(log_file: str) -> str:
+    """Read and validate a local log file. Returns file contents."""
+    p = Path(log_file).expanduser().resolve()
+    if not p.is_file():
+        raise FileNotFoundError(f"Log file not found: {log_file}")
+    size = p.stat().st_size
+    if size > MAX_LOG_FILE_BYTES:
+        raise ValueError(
+            f"Log file too large ({size / 1024 / 1024:.1f} MB). "
+            f"Max: {MAX_LOG_FILE_BYTES / 1024 / 1024:.0f} MB. "
+            "Filter the file first (e.g. grep 'avc:  denied' audit.log > denials.txt)."
+        )
+    if size == 0:
+        raise ValueError(f"Log file is empty: {log_file}")
+    return p.read_text(encoding="utf-8", errors="replace")
+
 
 _default_target: str | None = None
 _ssh_pool: dict[str, SSHBackend] = {}
@@ -207,9 +240,12 @@ async def tool_troubleshoot(
         str | None,
         Field(description="Raw FANOTIFY denial text for offline analysis (from log aggregator or audit.log)"),
     ] = None,
+    log_file: LogFileParam = None,
     target: TargetParam = None,
 ) -> dict:
-    """Diagnose why something is blocked. Pass raw_avc_text/raw_fanotify_text for offline analysis from log aggregators, or omit to query a live host via SSH."""
+    """Diagnose why something is blocked. Pass raw_avc_text/raw_fanotify_text, or log_file for offline analysis, or omit all to query a live host via SSH."""
+    if log_file and not raw_avc_text and not raw_fanotify_text:
+        raw_avc_text = _read_log_file(log_file)
     offline = raw_avc_text is not None or raw_fanotify_text is not None
     ssh = None if offline else await _get_ssh(target)
     return await troubleshoot(
@@ -239,9 +275,12 @@ async def tool_avc_denials(
         str | None,
         Field(description="Raw AVC denial text (from log aggregator, SIEM, or audit.log). If provided, parses this instead of querying via SSH."),
     ] = None,
+    log_file: LogFileParam = None,
     target: TargetParam = None,
 ) -> dict:
-    """Get SELinux AVC denials. Pass raw_text for offline analysis from log aggregators, or omit to query a live host via SSH."""
+    """Get SELinux AVC denials. Pass raw_text or log_file for offline analysis, or omit to query a live host via SSH."""
+    if log_file and not raw_text:
+        raw_text = _read_log_file(log_file)
     ssh = None if raw_text else await _get_ssh(target)
     return await avc_denials(ssh, since=since, source_type=source_type, raw_text=raw_text)
 
@@ -313,9 +352,12 @@ async def tool_fapolicyd_denials(
         str | None,
         Field(description="Raw FANOTIFY denial text (from log aggregator or audit.log). If provided, parses this instead of querying via SSH."),
     ] = None,
+    log_file: LogFileParam = None,
     target: TargetParam = None,
 ) -> dict:
-    """Get fapolicyd FANOTIFY denials. Pass raw_text for offline analysis, or omit to query a live host."""
+    """Get fapolicyd FANOTIFY denials. Pass raw_text or log_file for offline analysis, or omit to query a live host."""
+    if log_file and not raw_text:
+        raw_text = _read_log_file(log_file)
     ssh = None if raw_text else await _get_ssh(target)
     return await fapolicyd_denials(ssh, since=since, raw_text=raw_text)
 
@@ -371,15 +413,20 @@ async def tool_mls_categories(
 @mcp.tool(name="diagnosis.parse_denials")
 async def tool_parse_denials(
     raw_text: Annotated[
-        str,
+        str | None,
         Field(description="Raw denial text — AVC denials, FANOTIFY events, or mixed. Accepts ausearch output, audit.log lines, or SIEM-exported records."),
-    ],
+    ] = None,
+    log_file: LogFileParam = None,
     denial_type: Annotated[
         str,
         Field(description="Type of denials: 'avc', 'fanotify', or 'auto' (tries both)"),
     ] = "auto",
 ) -> dict:
-    """Parse raw denial text into structured JSON — no SSH needed. Use with log aggregator output (Splunk, ELK, Loki, etc.) or raw audit.log content. Returns parsed denials with summary statistics."""
+    """Parse denial text into structured JSON — no SSH needed. Pass raw_text directly or log_file to read from disk. Use with audit.log, ausearch output, SIEM exports, etc."""
+    if log_file and not raw_text:
+        raw_text = _read_log_file(log_file)
+    if not raw_text:
+        return {"error": "Either raw_text or log_file is required."}
     return parse_denials(raw_text, denial_type=denial_type)
 
 

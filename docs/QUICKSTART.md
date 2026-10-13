@@ -457,7 +457,23 @@ or `ENFORCEMENT_MCP_TARGET` env var).
 
 You don't need SSH to diagnose denials from log files. Three approaches:
 
-**1. Parse raw denial text (any source)**
+**1. Point at a log file on disk**
+
+The simplest path — pass a file path and let the tool read it:
+
+```json
+{
+  "tool": "diagnosis.parse_denials",
+  "arguments": {
+    "log_file": "/tmp/denials.txt"
+  }
+}
+```
+
+Works with `avc_denials(log_file=...)`, `fapolicyd_denials(log_file=...)`,
+and `troubleshoot(log_file=...)` too. Max file size: 10 MB.
+
+**2. Parse raw denial text (inline)**
 
 Feed `ausearch` output, raw `audit.log` lines, or SIEM-exported records
 directly to `parse_denials`:
@@ -474,7 +490,7 @@ directly to `parse_denials`:
 Returns structured JSON with parsed fields, summary statistics, and
 auto-detection of AVC vs FANOTIFY denial types.
 
-**2. Troubleshoot from log text (full diagnosis)**
+**3. Troubleshoot from log text (full diagnosis)**
 
 For a complete diagnosis — root cause, explanation, and fix suggestions —
 pass log text to `troubleshoot`:
@@ -489,10 +505,22 @@ pass log text to `troubleshoot`:
 }
 ```
 
-This runs the full troubleshooting pipeline offline — root cause analysis,
+Or point it at a file:
+
+```json
+{
+  "tool": "diagnosis.troubleshoot",
+  "arguments": {
+    "symptom": "httpd blocked from serving user home directories",
+    "log_file": "/tmp/denials.txt"
+  }
+}
+```
+
+Both run the full troubleshooting pipeline offline — root cause analysis,
 boolean detection, fix alternatives — without SSH.
 
-**3. Feed denial-specific tools**
+**4. Feed denial-specific tools**
 
 `avc_denials` and `fapolicyd_denials` also accept `raw_text` for offline parsing:
 

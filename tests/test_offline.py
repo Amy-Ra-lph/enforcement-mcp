@@ -151,3 +151,73 @@ class TestTroubleshootOffline:
         )
         assert result["root_cause"] == "selinux"
         assert len(result["denials_found"]) == 4
+
+
+class TestLogFileInput:
+    """Tests for log_file parameter on server wrappers."""
+
+    @pytest.fixture(autouse=True)
+    def _write_log_files(self, tmp_path):
+        self.avc_file = tmp_path / "avc.log"
+        self.avc_file.write_text(SAMPLE_AVC)
+        self.fanotify_file = tmp_path / "fanotify.log"
+        self.fanotify_file.write_text(SAMPLE_FANOTIFY)
+        self.empty_file = tmp_path / "empty.log"
+        self.empty_file.write_text("")
+
+    @pytest.mark.asyncio
+    async def test_parse_denials_log_file(self):
+        from enforcement_mcp.server import tool_parse_denials
+        result = await tool_parse_denials(log_file=str(self.avc_file))
+        assert result["total"] == 3
+        assert result["summary"]["avc_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_avc_denials_log_file(self):
+        from enforcement_mcp.server import tool_avc_denials
+        result = await tool_avc_denials(log_file=str(self.avc_file))
+        assert result["total"] == 3
+        assert result["mode"] == "offline"
+
+    @pytest.mark.asyncio
+    async def test_fapolicyd_denials_log_file(self):
+        from enforcement_mcp.server import tool_fapolicyd_denials
+        result = await tool_fapolicyd_denials(log_file=str(self.fanotify_file))
+        assert result["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_troubleshoot_log_file(self):
+        from enforcement_mcp.server import tool_troubleshoot
+        result = await tool_troubleshoot(
+            symptom="httpd blocked",
+            log_file=str(self.avc_file),
+        )
+        assert result["root_cause"] == "selinux"
+
+    @pytest.mark.asyncio
+    async def test_missing_file_raises(self):
+        from enforcement_mcp.server import tool_parse_denials
+        with pytest.raises(FileNotFoundError):
+            await tool_parse_denials(log_file="/tmp/nonexistent_12345.log")
+
+    @pytest.mark.asyncio
+    async def test_empty_file_raises(self):
+        from enforcement_mcp.server import tool_parse_denials
+        with pytest.raises(ValueError, match="empty"):
+            await tool_parse_denials(log_file=str(self.empty_file))
+
+    @pytest.mark.asyncio
+    async def test_no_input_returns_error(self):
+        from enforcement_mcp.server import tool_parse_denials
+        result = await tool_parse_denials()
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_raw_text_takes_precedence(self):
+        from enforcement_mcp.server import tool_parse_denials
+        result = await tool_parse_denials(
+            raw_text=SAMPLE_FANOTIFY,
+            log_file=str(self.avc_file),
+        )
+        assert result["summary"]["fanotify_count"] == 1
+        assert result["summary"]["avc_count"] == 0
