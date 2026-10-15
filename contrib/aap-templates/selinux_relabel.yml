@@ -1,0 +1,59 @@
+---
+# SELinux File Context Relabel Remediation
+# Sets the correct SELinux file context and runs restorecon.
+#
+# Extra vars (from enforcement-mcp diagnosis):
+#   target_path: filesystem path to relabel (required)
+#   new_context: SELinux type to apply, e.g. httpd_sys_content_t (required)
+#   recursive: relabel recursively (default: true)
+#   dry_run: report without applying (default: false)
+
+- name: SELinux file context relabel
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+
+  vars:
+    recursive: true
+    dry_run: false
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - target_path is defined
+          - new_context is defined
+        fail_msg: "target_path and new_context must be provided"
+
+    - name: Record current context
+      ansible.builtin.command:
+        cmd: "ls -dZ {{ target_path }}"
+      register: pre_context
+      changed_when: false
+
+  tasks:
+    - name: Add SELinux file context rule
+      community.general.sefcontext:
+        target: "{{ target_path }}(/.*)?"
+        setype: "{{ new_context }}"
+        state: present
+      when: not dry_run
+
+    - name: Apply file context with restorecon
+      ansible.builtin.command:
+        cmd: "restorecon -{{ 'R' if recursive else '' }}v {{ target_path }}"
+      register: restorecon_result
+      changed_when: restorecon_result.stdout | length > 0
+      when: not dry_run
+
+    - name: Verify new context
+      ansible.builtin.command:
+        cmd: "ls -dZ {{ target_path }}"
+      register: post_context
+      changed_when: false
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: >-
+          Path '{{ target_path }}':
+          {{ pre_context.stdout }} → {{ post_context.stdout }}.
+          {{ 'DRY RUN — no changes applied.' if dry_run else 'Relabeled to ' + new_context + '.' }}

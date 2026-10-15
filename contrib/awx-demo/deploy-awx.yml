@@ -1,0 +1,327 @@
+---
+# Deploy AWX + aap-mcp-server on a Beaker host
+# Usage: ansible-playbook deploy-awx.yml -i <host>, -e awx_admin_password=<pw>
+#
+# Prerequisites:
+#   - Root SSH access to target host
+#   - Internet access from target (github.com, quay.io, registry.k8s.io)
+#   - RHEL 10.x with 8GB+ RAM
+
+- name: Deploy AWX on Beaker host
+  hosts: all
+  become: true
+
+  vars:
+    awx_admin_password: "Agentic2026!"
+    awx_nodeport: 30080
+    aap_mcp_port: 3000
+    awx_operator_version: "2.19.1"
+    beaker_hosts: []
+    awx_deploy_dir: /root/awx-deploy
+
+  tasks:
+    - name: Install k3s
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik --write-kubeconfig-mode 644" sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for k3s node to be Ready
+      ansible.builtin.command: k3s kubectl get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}'
+      register: k3s_ready
+      retries: 30
+      delay: 5
+      until: k3s_ready.stdout == "True"
+      changed_when: false
+
+    - name: Pre-pull kube-rbac-proxy (gcr.io mirror fix)
+      ansible.builtin.shell: |
+        k3s ctr images pull registry.k8s.io/kubebuilder/kube-rbac-proxy:v0.15.0
+        k3s ctr images tag registry.k8s.io/kubebuilder/kube-rbac-proxy:v0.15.0 gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+      register: rbac_proxy
+      changed_when: "'already exists' not in rbac_proxy.stderr"
+
+    - name: Create AWX deploy directory
+      ansible.builtin.file:
+        path: "{{ awx_deploy_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Write AWX operator kustomization
+      ansible.builtin.copy:
+        dest: "{{ awx_deploy_dir }}/kustomization.yaml"
+        mode: '0644'
+        content: |
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          resources:
+            - github.com/ansible/awx-operator/config/default?ref={{ awx_operator_version }}
+            - awx-instance.yaml
+          images:
+            - name: quay.io/ansible/awx-operator
+              newTag: "{{ awx_operator_version }}"
+          namespace: awx
+
+    - name: Write AWX instance manifest
+      ansible.builtin.copy:
+        dest: "{{ awx_deploy_dir }}/awx-instance.yaml"
+        mode: '0644'
+        content: |
+          apiVersion: awx.ansible.com/v1beta1
+          kind: AWX
+          metadata:
+            name: awx-demo
+            namespace: awx
+          spec:
+            service_type: NodePort
+            nodeport_port: {{ awx_nodeport }}
+            admin_user: admin
+            admin_password_secret: awx-demo-admin-password
+            postgres_storage_class: local-path
+            projects_persistence: true
+            projects_storage_class: local-path
+            projects_storage_size: 2Gi
+            projects_storage_access_mode: ReadWriteOnce
+
+    - name: Create AWX namespace
+      ansible.builtin.command: kubectl create namespace awx
+      register: ns_create
+      changed_when: ns_create.rc == 0
+      failed_when: ns_create.rc != 0 and 'already exists' not in ns_create.stderr
+
+    - name: Create admin password secret
+      ansible.builtin.command: >
+        kubectl -n awx create secret generic awx-demo-admin-password
+        --from-literal=password={{ awx_admin_password }}
+      register: secret_create
+      changed_when: secret_create.rc == 0
+      failed_when: secret_create.rc != 0 and 'already exists' not in secret_create.stderr
+
+    - name: Apply AWX operator + instance
+      ansible.builtin.command: kubectl apply -k {{ awx_deploy_dir }}/
+      register: apply_result
+      changed_when: "'created' in apply_result.stdout or 'configured' in apply_result.stdout"
+
+    - name: Wait for AWX operator
+      ansible.builtin.command: kubectl -n awx wait --for=condition=available deployment/awx-operator-controller-manager --timeout=180s
+      changed_when: false
+
+    - name: Wait for AWX web pod
+      ansible.builtin.shell: |
+        kubectl -n awx get pods -l app.kubernetes.io/name=awx-demo-web -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}'
+      register: web_ready
+      retries: 60
+      delay: 10
+      until: web_ready.stdout == "True"
+      changed_when: false
+
+    - name: Wait for AWX API
+      ansible.builtin.uri:
+        url: "http://localhost:{{ awx_nodeport }}/api/v2/ping/"
+        return_content: true
+      register: awx_ping
+      retries: 30
+      delay: 5
+      until: awx_ping.status == 200
+      changed_when: false
+
+    - name: Get AWX auth token
+      ansible.builtin.uri:
+        url: "http://localhost:{{ awx_nodeport }}/api/v2/tokens/"
+        method: POST
+        user: admin
+        password: "{{ awx_admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body: {}
+        status_code: 201
+      register: awx_token
+
+    - name: Set token fact
+      ansible.builtin.set_fact:
+        awx_bearer_token: "{{ awx_token.json.token }}"
+
+    - name: Disable host key checking
+      ansible.builtin.uri:
+        url: "http://localhost:{{ awx_nodeport }}/api/v2/settings/jobs/"
+        method: PATCH
+        headers:
+          Authorization: "Bearer {{ awx_bearer_token }}"
+        body_format: json
+        body:
+          AWX_TASK_ENV:
+            ANSIBLE_HOST_KEY_CHECKING: "False"
+      changed_when: true
+
+    - name: Create inventory
+      ansible.builtin.uri:
+        url: "http://localhost:{{ awx_nodeport }}/api/v2/inventories/"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ awx_bearer_token }}"
+        body_format: json
+        body:
+          name: RHEL Managed Hosts
+          organization: 1
+        status_code: [201, 400]
+      register: inv_result
+
+    - name: Add Beaker hosts to inventory
+      ansible.builtin.uri:
+        url: "http://localhost:{{ awx_nodeport }}/api/v2/hosts/"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ awx_bearer_token }}"
+        body_format: json
+        body:
+          name: "{{ item }}"
+          inventory: "{{ inv_result.json.id | default(2) }}"
+        status_code: [201, 400]
+      loop: "{{ beaker_hosts }}"
+      when: beaker_hosts | length > 0
+
+    - name: Generate SSH key for AWX
+      community.crypto.openssh_keypair:
+        path: /root/.ssh/id_ed25519
+        type: ed25519
+        comment: "awx@{{ inventory_hostname }}"
+      register: ssh_key
+
+    - name: Create machine credential
+      ansible.builtin.uri:
+        url: "http://localhost:{{ awx_nodeport }}/api/v2/credentials/"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ awx_bearer_token }}"
+        body_format: json
+        body:
+          name: Beaker Root SSH
+          credential_type: 1
+          organization: 1
+          inputs:
+            username: root
+            ssh_key_data: "{{ lookup('file', '/root/.ssh/id_ed25519') }}"
+        status_code: [201, 400]
+
+    - name: Copy playbooks into AWX project
+      ansible.builtin.shell: |
+        TASK_POD=$(kubectl -n awx get pods -l app.kubernetes.io/name=awx-demo-task -o jsonpath='{.items[0].metadata.name}')
+        kubectl -n awx exec "$TASK_POD" -c awx-demo-task -- mkdir -p /var/lib/awx/projects/enforcement-mcp-remediation
+      changed_when: true
+
+    - name: Create AWX project
+      ansible.builtin.uri:
+        url: "http://localhost:{{ awx_nodeport }}/api/v2/projects/"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ awx_bearer_token }}"
+        body_format: json
+        body:
+          name: enforcement-mcp-remediation
+          organization: 1
+          scm_type: ""
+          local_path: enforcement-mcp-remediation
+        status_code: [201, 400]
+      register: project_result
+
+    - name: Install Node.js for aap-mcp-server
+      ansible.builtin.dnf:
+        name: [nodejs, npm]
+        state: present
+
+    - name: Clone aap-mcp-server
+      ansible.builtin.git:
+        repo: https://github.com/ansible/aap-mcp-server.git
+        dest: /root/aap-mcp-server
+        version: main
+
+    - name: Install aap-mcp-server dependencies
+      community.general.npm:
+        path: /root/aap-mcp-server
+
+    - name: Build aap-mcp-server
+      ansible.builtin.command:
+        cmd: npm run build
+        chdir: /root/aap-mcp-server
+      changed_when: true
+
+    - name: Patch aap-mcp-server for AWX (auth endpoint)
+      ansible.builtin.replace:
+        path: /root/aap-mcp-server/dist/index.js
+        regexp: '/api/gateway/v1/me/'
+        replace: '/api/v2/me/'
+
+    - name: Patch aap-mcp-server for AWX (controller prefix)
+      ansible.builtin.replace:
+        path: /root/aap-mcp-server/dist/openapi-loader.js
+        regexp: 'tool\.pathTemplate = tool\.pathTemplate\?\.replace\("/api/v2", "/api/controller/v2"\);'
+        replace: '// AWX compat: skip gateway prefix'
+
+    - name: Write aap-mcp-server config
+      ansible.builtin.copy:
+        dest: /root/aap-mcp-server/aap-mcp.yaml
+        mode: '0600'
+        content: |
+          base_url: http://localhost:{{ awx_nodeport }}
+          ignore-certificate-errors: true
+          enable_metrics: false
+          allow_write_operations: true
+          services:
+            - name: controller
+              enabled: true
+              local_path: data/controller-schema.json
+          toolsets:
+            remediation:
+              - controller.job_templates_list
+              - controller.job_templates_launch_create
+              - controller.jobs_list
+              - controller.jobs_read
+              - controller.inventories_list
+              - controller.hosts_list
+            full:
+              - controller.*
+
+    - name: Create aap-mcp-server systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/aap-mcp-server.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=AAP MCP Server
+          After=k3s.service
+          Requires=k3s.service
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/root/aap-mcp-server
+          ExecStart=/usr/bin/node dist/index.js --config /root/aap-mcp-server/aap-mcp.yaml --transport http
+          Restart=on-failure
+          RestartSec=5
+          Environment=NODE_ENV=production
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart aap-mcp-server
+
+    - name: Enable and start aap-mcp-server
+      ansible.builtin.systemd:
+        name: aap-mcp-server
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Display connection info
+      ansible.builtin.debug:
+        msg: |
+          AWX deployed successfully!
+            AWX UI:         http://{{ inventory_hostname }}:{{ awx_nodeport }}
+            AWX Login:      admin / {{ awx_admin_password }}
+            aap-mcp-server: http://{{ inventory_hostname }}:{{ aap_mcp_port }}/mcp
+            Auth token:     {{ awx_bearer_token }}
+            SSH public key: {{ lookup('file', '/root/.ssh/id_ed25519.pub') }}
+
+  handlers:
+    - name: restart aap-mcp-server
+      ansible.builtin.systemd:
+        name: aap-mcp-server
+        state: restarted

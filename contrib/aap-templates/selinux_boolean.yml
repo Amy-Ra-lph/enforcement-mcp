@@ -1,0 +1,51 @@
+---
+# SELinux Boolean Remediation
+# Toggles a SELinux boolean persistently using linux-system-roles.
+#
+# Extra vars (from enforcement-mcp diagnosis):
+#   selinux_boolean: name of the boolean to set (required)
+#   selinux_boolean_value: "on" or "off" (default: "on")
+#   dry_run: if true, report what would change without applying (default: false)
+
+- name: SELinux boolean remediation
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+
+  vars:
+    selinux_boolean_value: "on"
+    dry_run: false
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - selinux_boolean is defined
+          - selinux_boolean | length > 0
+        fail_msg: "selinux_boolean must be provided"
+
+    - name: Record pre-change state
+      ansible.builtin.command:
+        cmd: "getsebool {{ selinux_boolean }}"
+      register: pre_state
+      changed_when: false
+
+  tasks:
+    - name: Set SELinux boolean
+      ansible.posix.seboolean:
+        name: "{{ selinux_boolean }}"
+        state: "{{ selinux_boolean_value == 'on' }}"
+        persistent: true
+      when: not dry_run
+
+    - name: Verify boolean state
+      ansible.builtin.command:
+        cmd: "getsebool {{ selinux_boolean }}"
+      register: post_state
+      changed_when: false
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: >-
+          Boolean '{{ selinux_boolean }}':
+          {{ pre_state.stdout }} → {{ post_state.stdout }}.
+          {{ 'DRY RUN — no changes applied.' if dry_run else 'Applied persistently.' }}

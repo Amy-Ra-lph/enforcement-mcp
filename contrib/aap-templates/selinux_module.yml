@@ -1,0 +1,73 @@
+---
+# SELinux Custom Module Remediation
+# Loads a CIL policy module to allow specific access patterns.
+#
+# Extra vars (from enforcement-mcp diagnosis):
+#   module_name: name for the module, e.g. emcp_httpd_fix (required)
+#   cil_module_content: CIL policy text (required)
+#   priority: module priority 100-400 (default: 400)
+#   dry_run: report without applying (default: false)
+
+- name: SELinux custom module load
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+
+  vars:
+    priority: 400
+    dry_run: false
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - module_name is defined
+          - cil_module_content is defined
+          - priority | int >= 100
+          - priority | int <= 400
+        fail_msg: "module_name, cil_module_content required; priority must be 100-400"
+
+    - name: Check if module already loaded
+      ansible.builtin.command:
+        cmd: "semodule -l"
+      register: existing_modules
+      changed_when: false
+
+    - name: Warn if module exists
+      ansible.builtin.debug:
+        msg: "Module '{{ module_name }}' already loaded — will be replaced"
+      when: module_name in existing_modules.stdout
+
+  tasks:
+    - name: Write CIL module file
+      ansible.builtin.copy:
+        content: "{{ cil_module_content }}"
+        dest: "/tmp/{{ module_name }}.cil"
+        mode: "0600"
+      when: not dry_run
+
+    - name: Load CIL module
+      ansible.builtin.command:
+        cmd: "semodule -i /tmp/{{ module_name }}.cil -X {{ priority }}"
+      when: not dry_run
+      register: load_result
+
+    - name: Clean up temp file
+      ansible.builtin.file:
+        path: "/tmp/{{ module_name }}.cil"
+        state: absent
+      when: not dry_run
+
+  post_tasks:
+    - name: Verify module loaded
+      ansible.builtin.command:
+        cmd: "semodule -l"
+      register: post_modules
+      changed_when: false
+      when: not dry_run
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: >-
+          Module '{{ module_name }}' at priority {{ priority }}:
+          {{ 'loaded successfully' if (not dry_run and module_name in post_modules.stdout) else 'DRY RUN — module not loaded' }}.
+          Reversal: semodule -r {{ module_name }}

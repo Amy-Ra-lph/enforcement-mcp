@@ -1,0 +1,90 @@
+---
+# AIDE Baseline Update Remediation
+# Updates the AIDE integrity database after approved changes.
+#
+# Extra vars (from enforcement-mcp diagnosis):
+#   aide_scope: "full" for full re-init, "selective" to accept specific paths (default: full)
+#   approved_paths: list of paths whose changes are approved (for selective mode)
+#   dry_run: report without applying (default: false)
+
+- name: AIDE baseline update
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+
+  vars:
+    aide_scope: "full"
+    approved_paths: []
+    dry_run: false
+
+  pre_tasks:
+    - name: Validate selective mode has paths
+      ansible.builtin.assert:
+        that:
+          - approved_paths | length > 0
+        fail_msg: "approved_paths required when aide_scope is 'selective'"
+      when: aide_scope == "selective"
+
+    - name: Run AIDE check to capture current state
+      ansible.builtin.command:
+        cmd: "aide --check"
+      register: aide_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report current findings
+      ansible.builtin.debug:
+        msg: "AIDE check return code: {{ aide_check.rc }} (0=clean, non-zero=changes detected)"
+
+  tasks:
+    - name: Full baseline re-initialization
+      when:
+        - aide_scope == "full"
+        - not dry_run
+      block:
+        - name: Initialize new AIDE database
+          ansible.builtin.command:
+            cmd: "aide --init"
+          register: aide_init
+
+        - name: Replace current database with new baseline
+          ansible.builtin.copy:
+            src: /var/lib/aide/aide.db.new.gz
+            dest: /var/lib/aide/aide.db.gz
+            remote_src: true
+            backup: true
+            mode: "0600"
+
+    - name: Selective baseline update
+      when:
+        - aide_scope == "selective"
+        - not dry_run
+      block:
+        - name: Update AIDE database
+          ansible.builtin.command:
+            cmd: "aide --update"
+          register: aide_update
+
+        - name: Replace database with updated version
+          ansible.builtin.copy:
+            src: /var/lib/aide/aide.db.new.gz
+            dest: /var/lib/aide/aide.db.gz
+            remote_src: true
+            backup: true
+            mode: "0600"
+
+  post_tasks:
+    - name: Verify clean baseline
+      ansible.builtin.command:
+        cmd: "aide --check"
+      register: post_check
+      changed_when: false
+      failed_when: false
+      when: not dry_run
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: >-
+          AIDE baseline {{ aide_scope }} update:
+          {{ 'completed — new baseline active (rc=' + post_check.rc | string + ')' if not dry_run else 'DRY RUN — no changes' }}.
+          Previous database backed up.
+          {{ 'Approved paths: ' + (approved_paths | join(', ')) if aide_scope == 'selective' else '' }}

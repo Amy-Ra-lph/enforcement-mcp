@@ -1,0 +1,86 @@
+---
+# AAP → enforcement-mcp: Automated Posture Scan
+# Uses the ansible.mcp collection to call enforcement-mcp diagnosis tools
+# from an AAP workflow. Schedule nightly to detect policy drift.
+#
+# Requirements:
+#   - ansible.mcp collection in execution environment
+#   - enforcement-mcp running as MCP server (stdio or SSE)
+#   - Machine credential for enforcement-mcp's SSH targets
+
+- name: Automated RHEL security posture scan
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    mcp_server_command: "enforcement-mcp"
+    mcp_server_args: ["serve", "{{ target_host }}"]
+    posture_threshold: 70
+    notify_on_fail: true
+
+  tasks:
+    - name: Discover available enforcement-mcp tools
+      ansible.mcp.tools_info:
+      register: mcp_tools
+
+    - name: Run host posture check
+      ansible.mcp.run_tool:
+        tool: "diagnosis.host_posture"
+        arguments:
+          target: "{{ target_host }}"
+      register: posture_result
+
+    - name: Parse posture score
+      ansible.builtin.set_fact:
+        posture_score: "{{ posture_result.result.posture_score | default(0) | int }}"
+        findings: "{{ posture_result.result.findings | default([]) }}"
+
+    - name: Check for AVC denials
+      ansible.mcp.run_tool:
+        tool: "diagnosis.avc_denials"
+        arguments:
+          target: "{{ target_host }}"
+          since: "24h"
+      register: avc_result
+
+    - name: Check fapolicyd status
+      ansible.mcp.run_tool:
+        tool: "diagnosis.fapolicyd_status"
+        arguments:
+          target: "{{ target_host }}"
+      register: fapolicyd_result
+
+    - name: Check AIDE status
+      ansible.mcp.run_tool:
+        tool: "diagnosis.aide_check"
+        arguments:
+          target: "{{ target_host }}"
+      register: aide_result
+      failed_when: false
+
+    - name: Build scan report
+      ansible.builtin.set_fact:
+        scan_report:
+          host: "{{ target_host }}"
+          timestamp: "{{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }}"
+          posture_score: "{{ posture_score }}"
+          below_threshold: "{{ posture_score | int < posture_threshold | int }}"
+          avc_denials_24h: "{{ avc_result.result.total | default(0) }}"
+          fapolicyd_active: "{{ fapolicyd_result.result.active | default(false) }}"
+          aide_changes: "{{ aide_result.result.changes_detected | default(false) }}"
+          findings: "{{ findings }}"
+
+    - name: Display scan report
+      ansible.builtin.debug:
+        var: scan_report
+
+    - name: Flag hosts below threshold
+      ansible.builtin.fail:
+        msg: >-
+          POSTURE ALERT: {{ target_host }} scored {{ posture_score }}/100
+          (threshold: {{ posture_threshold }}).
+          Findings: {{ findings | join(', ') }}
+      when:
+        - posture_score | int < posture_threshold | int
+        - notify_on_fail

@@ -1,0 +1,169 @@
+---
+# AAP Job Template definitions for enforcement-mcp remediation.
+# Import with: awx-cli import < job-templates.yml
+# Or create manually in AAP UI using these parameters.
+
+- name: selinux-boolean-remediation
+  description: >-
+    Toggle an SELinux boolean persistently. Pairs with enforcement-mcp
+    denial_explain output when cause=boolean.
+  job_type: run
+  inventory: RHEL Managed Hosts
+  project: enforcement-mcp-remediation
+  playbook: selinux_boolean.yml
+  credentials:
+    - RHEL Machine Credential
+  ask_variables_on_launch: true
+  extra_vars:
+    selinux_boolean: ""
+    selinux_boolean_value: "on"
+    dry_run: false
+  survey_enabled: true
+  survey_spec:
+    - variable: selinux_boolean
+      question_name: "SELinux boolean name"
+      type: text
+      required: true
+    - variable: selinux_boolean_value
+      question_name: "Desired state"
+      type: multiplechoice
+      choices: ["on", "off"]
+      default: "on"
+      required: true
+    - variable: dry_run
+      question_name: "Dry run (report only)?"
+      type: multiplechoice
+      choices: ["true", "false"]
+      default: "false"
+      required: true
+
+- name: selinux-relabel-remediation
+  description: >-
+    Fix SELinux file context mismatch via fcontext rule + restorecon.
+    Pairs with enforcement-mcp file_context or denial_explain output
+    when cause=file_context.
+  job_type: run
+  inventory: RHEL Managed Hosts
+  project: enforcement-mcp-remediation
+  playbook: selinux_relabel.yml
+  credentials:
+    - RHEL Machine Credential
+  ask_variables_on_launch: true
+  extra_vars:
+    target_path: ""
+    new_context: ""
+    recursive: true
+    dry_run: false
+  survey_enabled: true
+  survey_spec:
+    - variable: target_path
+      question_name: "Path to relabel"
+      type: text
+      required: true
+    - variable: new_context
+      question_name: "SELinux type (e.g. httpd_sys_content_t)"
+      type: text
+      required: true
+    - variable: recursive
+      question_name: "Apply recursively?"
+      type: multiplechoice
+      choices: ["true", "false"]
+      default: "true"
+    - variable: dry_run
+      question_name: "Dry run?"
+      type: multiplechoice
+      choices: ["true", "false"]
+      default: "false"
+
+- name: selinux-module-remediation
+  description: >-
+    Load a custom CIL policy module. Pairs with enforcement-mcp
+    generate_module output or generate_playbook with strategy=custom_module.
+  job_type: run
+  inventory: RHEL Managed Hosts
+  project: enforcement-mcp-remediation
+  playbook: selinux_module.yml
+  credentials:
+    - RHEL Machine Credential
+  ask_variables_on_launch: true
+  extra_vars:
+    module_name: ""
+    cil_module_content: ""
+    priority: 400
+    dry_run: false
+  survey_enabled: true
+  survey_spec:
+    - variable: module_name
+      question_name: "Module name (e.g. emcp_httpd_fix)"
+      type: text
+      required: true
+    - variable: cil_module_content
+      question_name: "CIL policy content"
+      type: textarea
+      required: true
+    - variable: priority
+      question_name: "Module priority (100-400)"
+      type: integer
+      default: 400
+      min: 100
+      max: 400
+    - variable: dry_run
+      question_name: "Dry run?"
+      type: multiplechoice
+      choices: ["true", "false"]
+      default: "false"
+
+- name: fapolicyd-trust-remediation
+  description: >-
+    Add a binary to fapolicyd trust database. Pairs with enforcement-mcp
+    fapolicyd_trust_check or fapolicyd_denials output.
+  job_type: run
+  inventory: RHEL Managed Hosts
+  project: enforcement-mcp-remediation
+  playbook: fapolicyd_trust.yml
+  credentials:
+    - RHEL Machine Credential
+  ask_variables_on_launch: true
+  extra_vars:
+    binary_path: ""
+    dry_run: false
+  survey_enabled: true
+  survey_spec:
+    - variable: binary_path
+      question_name: "Binary path to trust"
+      type: text
+      required: true
+    - variable: dry_run
+      question_name: "Dry run?"
+      type: multiplechoice
+      choices: ["true", "false"]
+      default: "false"
+
+- name: aide-baseline-remediation
+  description: >-
+    Update AIDE integrity database after approved changes.
+    Pairs with enforcement-mcp aide_check output.
+  job_type: run
+  inventory: RHEL Managed Hosts
+  project: enforcement-mcp-remediation
+  playbook: aide_baseline.yml
+  credentials:
+    - RHEL Machine Credential
+  ask_variables_on_launch: true
+  extra_vars:
+    aide_scope: "full"
+    approved_paths: []
+    dry_run: false
+  survey_enabled: true
+  survey_spec:
+    - variable: aide_scope
+      question_name: "Update scope"
+      type: multiplechoice
+      choices: ["full", "selective"]
+      default: "full"
+      required: true
+    - variable: dry_run
+      question_name: "Dry run?"
+      type: multiplechoice
+      choices: ["true", "false"]
+      default: "false"

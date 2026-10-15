@@ -1,0 +1,70 @@
+---
+# fapolicyd Trust Remediation
+# Adds a binary to the fapolicyd trust database so it can execute.
+#
+# Extra vars (from enforcement-mcp diagnosis):
+#   binary_path: absolute path to the blocked binary (required)
+#   dry_run: report without applying (default: false)
+
+- name: fapolicyd trust add
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+
+  vars:
+    dry_run: false
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - binary_path is defined
+          - binary_path is match("^/")
+        fail_msg: "binary_path must be an absolute path"
+
+    - name: Verify binary exists
+      ansible.builtin.stat:
+        path: "{{ binary_path }}"
+      register: binary_stat
+
+    - name: Fail if binary missing
+      ansible.builtin.fail:
+        msg: "Binary not found: {{ binary_path }}"
+      when: not binary_stat.stat.exists
+
+    - name: Check current trust status
+      ansible.builtin.command:
+        cmd: "fapolicyd-cli --check-path {{ binary_path }}"
+      register: trust_status
+      changed_when: false
+      failed_when: false
+
+  tasks:
+    - name: Add to fapolicyd trust
+      ansible.builtin.command:
+        cmd: "fapolicyd-cli --file add {{ binary_path }}"
+      when:
+        - not dry_run
+        - "'trusted' not in trust_status.stdout"
+      register: add_result
+
+    - name: Update fapolicyd trust database
+      ansible.builtin.command:
+        cmd: "fapolicyd-cli --update"
+      when:
+        - not dry_run
+        - add_result is changed
+
+  post_tasks:
+    - name: Verify trust status
+      ansible.builtin.command:
+        cmd: "fapolicyd-cli --check-path {{ binary_path }}"
+      register: post_trust
+      changed_when: false
+      when: not dry_run
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: >-
+          Binary '{{ binary_path }}':
+          {{ 'now trusted' if (not dry_run and 'trusted' in post_trust.stdout | default('')) else 'DRY RUN — not modified' }}.
+          Reversal: fapolicyd-cli --file delete {{ binary_path }} && fapolicyd-cli --update

@@ -1,0 +1,122 @@
+---
+# Configure AWX with enforcement-mcp remediation job templates
+# Usage: ansible-playbook configure-templates.yml -i <awx-host>, \
+#        -e awx_token=<token> -e awx_port=30080
+#
+# Run after deploy-awx.yml. Copies playbooks and creates job templates.
+
+- name: Configure AWX remediation templates
+  hosts: all
+  become: true
+
+  vars:
+    awx_port: 30080
+    awx_base: "http://localhost:{{ awx_port }}"
+    templates_dir: "{{ playbook_dir }}/../aap-templates"
+    ee_id: 3
+    playbooks:
+      - name: selinux-boolean-remediation
+        file: selinux_boolean.yml
+      - name: selinux-relabel-remediation
+        file: selinux_relabel.yml
+      - name: selinux-module-remediation
+        file: selinux_module.yml
+      - name: fapolicyd-trust-remediation
+        file: fapolicyd_trust.yml
+      - name: aide-baseline-remediation
+        file: aide_baseline.yml
+
+  tasks:
+    - name: Get task pod name
+      ansible.builtin.command: >
+        kubectl -n awx get pods
+        -l app.kubernetes.io/name=awx-demo-task
+        -o jsonpath='{.items[0].metadata.name}'
+      register: task_pod
+      changed_when: false
+
+    - name: Ensure project directory exists
+      ansible.builtin.command: >
+        kubectl -n awx exec {{ task_pod.stdout }} -c awx-demo-task --
+        mkdir -p /var/lib/awx/projects/enforcement-mcp-remediation
+      changed_when: true
+
+    - name: Copy playbook files to host
+      ansible.builtin.copy:
+        src: "{{ templates_dir }}/{{ item.file }}"
+        dest: "/tmp/{{ item.file }}"
+        mode: '0644'
+      loop: "{{ playbooks }}"
+
+    - name: Copy playbooks into AWX pod
+      ansible.builtin.command: >
+        kubectl -n awx cp /tmp/{{ item.file }}
+        {{ task_pod.stdout }}:/var/lib/awx/projects/enforcement-mcp-remediation/{{ item.file }}
+        -c awx-demo-task
+      loop: "{{ playbooks }}"
+      changed_when: true
+
+    - name: Get project ID
+      ansible.builtin.uri:
+        url: "{{ awx_base }}/api/v2/projects/?name=enforcement-mcp-remediation"
+        headers:
+          Authorization: "Bearer {{ awx_token }}"
+      register: project_lookup
+
+    - name: Get inventory ID
+      ansible.builtin.uri:
+        url: "{{ awx_base }}/api/v2/inventories/?name=RHEL+Managed+Hosts"
+        headers:
+          Authorization: "Bearer {{ awx_token }}"
+      register: inv_lookup
+
+    - name: Get credential ID
+      ansible.builtin.uri:
+        url: "{{ awx_base }}/api/v2/credentials/?name=Beaker+Root+SSH"
+        headers:
+          Authorization: "Bearer {{ awx_token }}"
+      register: cred_lookup
+
+    - name: Create job templates
+      ansible.builtin.uri:
+        url: "{{ awx_base }}/api/v2/job_templates/"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ awx_token }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          job_type: run
+          inventory: "{{ inv_lookup.json.results[0].id }}"
+          project: "{{ project_lookup.json.results[0].id }}"
+          playbook: "{{ item.file }}"
+          ask_variables_on_launch: true
+          ask_limit_on_launch: true
+          execution_environment: "{{ ee_id }}"
+        status_code: [201, 400]
+      loop: "{{ playbooks }}"
+      register: jt_results
+
+    - name: Associate credentials to templates
+      ansible.builtin.uri:
+        url: "{{ awx_base }}/api/v2/job_templates/{{ item.json.id }}/credentials/"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ awx_token }}"
+        body_format: json
+        body:
+          id: "{{ cred_lookup.json.results[0].id }}"
+        status_code: [204, 400]
+      loop: "{{ jt_results.results }}"
+      when: item.json.id is defined
+
+    - name: Verify templates
+      ansible.builtin.uri:
+        url: "{{ awx_base }}/api/v2/job_templates/"
+        headers:
+          Authorization: "Bearer {{ awx_token }}"
+      register: templates_check
+
+    - name: Show templates
+      ansible.builtin.debug:
+        msg: "{{ templates_check.json.count }} job templates configured"

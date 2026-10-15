@@ -1,0 +1,23 @@
+# aap-mcp-server configuration for AWX demo
+# Scoped to controller service only (no gateway/galaxy/eda for now)
+
+base_url: http://awx-web:8052
+ignore-certificate-errors: true
+enable_metrics: false
+
+services:
+  - name: controller
+    enabled: true
+
+# Scoped toolsets for the remediation demo
+toolsets:
+  remediation:
+    - controller.job_templates_list
+    - controller.job_templates_read
+    - controller.job_templates_launch_create
+    - controller.jobs_list
+    - controller.jobs_read
+    - controller.inventories_list
+    - controller.hosts_list
+  full:
+    - controller.*
