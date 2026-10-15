@@ -145,6 +145,15 @@ async def verify_jwt(
     )
 
 
+GROUP_ROLE_MAP: dict[str, Role] = {
+    "enforce-remediate": Role.OPERATOR,
+    "enforce-diagnose": Role.VIEWER,
+    "agent-tier-sovereign": Role.ADMIN,
+    "agent-tier-verified": Role.VIEWER,
+    "admins": Role.ADMIN,
+}
+
+
 def _extract_roles(claims: dict) -> list[Role]:
     roles: list[Role] = []
     role_claim = claims.get("roles", [])
@@ -162,6 +171,13 @@ def _extract_roles(claims: dict) -> list[Role]:
             roles.append(Role.VIEWER)
         elif r_lower in ("containment", "incident"):
             roles.append(Role.CONTAINMENT)
+    groups = claims.get("groups", [])
+    if isinstance(groups, str):
+        groups = [groups]
+    for g in groups:
+        mapped = GROUP_ROLE_MAP.get(g.lower().strip())
+        if mapped and mapped not in roles:
+            roles.append(mapped)
     if not roles:
         roles.append(Role.VIEWER)
     return roles
