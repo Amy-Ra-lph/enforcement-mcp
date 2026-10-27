@@ -2,6 +2,7 @@
 
 from enforcement_mcp.parsers import parse_getenforce, parse_sesearch_allow
 from enforcement_mcp.risk import score_boolean_change, score_fapolicyd_trust, score_module_change
+from enforcement_mcp.sanitize import SanitizationError, quote_arg, sanitize_identifier
 from enforcement_mcp.ssh import SSHBackend
 
 
@@ -35,8 +36,12 @@ async def _assess_boolean(ssh: SSHBackend, params: dict) -> dict:
 
     if not name:
         return {"error": "missing_param", "message": "boolean name required"}
+    try:
+        name = sanitize_identifier(name, "name")
+    except SanitizationError as e:
+        return e.to_dict()
 
-    cmd = f"sesearch --allow -b {name} 2>/dev/null"
+    cmd = f"sesearch --allow -b {quote_arg(name)} 2>/dev/null"
     result = await ssh.execute(cmd)
     rules_raw = parse_sesearch_allow(result.stdout)
 

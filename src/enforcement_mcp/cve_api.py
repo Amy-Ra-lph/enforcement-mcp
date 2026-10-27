@@ -18,7 +18,10 @@ _BASE_URL = "https://access.redhat.com/hydra/rest/securitydata"
 def _fetch_cve_sync(cve_id: str) -> dict:
     """Synchronous CVE fetch — called via asyncio.to_thread()."""
     url = f"{_BASE_URL}/cve/{cve_id}.json"
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310
+    req = urllib.request.Request(url, headers={  # noqa: S310
+        "Accept": "application/json",
+        "User-Agent": "enforcement-mcp/0.5.1",
+    })
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
             return json.loads(resp.read().decode())
