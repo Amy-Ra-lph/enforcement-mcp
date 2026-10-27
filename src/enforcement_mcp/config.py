@@ -4,7 +4,7 @@ import os
 
 from pydantic import BaseModel
 
-from .models.identity import AuthzPolicy, IdentityMode
+from .models.identity import AuthzPolicy, IdentityMode, ToolTier
 from .sanitize import sanitize_hostname, sanitize_username
 
 
@@ -84,3 +84,20 @@ def get_identity_config() -> IdentityConfig:
         spiffe_trust_domain=os.environ.get("ENFORCEMENT_MCP_SPIFFE_TRUST_DOMAIN", ""),
         spiffe_socket=os.environ.get("ENFORCEMENT_MCP_SPIFFE_SOCKET", ""),
     )
+
+
+def get_tool_tier() -> ToolTier:
+    """Determine which tool tier to register.
+
+    Explicit env var wins.  Otherwise, default to DIAGNOSIS when no
+    identity/auth is configured (secure-by-default for non-frontier
+    models and air-gapped labs).
+    """
+    explicit = os.environ.get("ENFORCEMENT_MCP_TOOL_TIER", "").strip().lower()
+    if explicit:
+        return ToolTier[explicit.upper()]
+
+    identity_mode = os.environ.get("ENFORCEMENT_MCP_IDENTITY_MODE", "none")
+    if identity_mode == "none":
+        return ToolTier.DIAGNOSIS
+    return ToolTier.MANAGEMENT

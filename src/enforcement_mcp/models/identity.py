@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 
 from pydantic import BaseModel
 
@@ -17,6 +17,12 @@ class IdentityMode(StrEnum):
 class AuthzPolicy(StrEnum):
     PERMISSIVE = "permissive"
     STRICT = "strict"
+
+
+class ToolTier(IntEnum):
+    DIAGNOSIS = 1
+    REMEDIATION = 2
+    MANAGEMENT = 3
 
 
 class Role(StrEnum):
