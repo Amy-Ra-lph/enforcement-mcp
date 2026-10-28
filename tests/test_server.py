@@ -2,7 +2,14 @@
 
 import pytest
 
-from enforcement_mcp.server import mcp
+from enforcement_mcp.server import mcp, _tool_tier
+from enforcement_mcp.models.identity import ToolTier
+
+_TIER_TOOL_COUNTS = {
+    ToolTier.DIAGNOSIS: 18,
+    ToolTier.REMEDIATION: 22,
+    ToolTier.MANAGEMENT: 30,
+}
 
 
 class TestServerSetup:
@@ -12,7 +19,10 @@ class TestServerSetup:
     @pytest.mark.asyncio
     async def test_tool_count(self):
         tools = await mcp.list_tools()
-        assert len(tools) == 30
+        expected = _TIER_TOOL_COUNTS[_tool_tier]
+        assert len(tools) == expected, (
+            f"Tier {_tool_tier.name}: expected {expected} tools, got {len(tools)}"
+        )
 
     @pytest.mark.asyncio
     async def test_diagnosis_tools_registered(self):
@@ -43,6 +53,8 @@ class TestServerSetup:
 
     @pytest.mark.asyncio
     async def test_management_tools_registered(self):
+        if _tool_tier < ToolTier.MANAGEMENT:
+            pytest.skip(f"Tier {_tool_tier.name} — management tools not registered")
         tools = await mcp.list_tools()
         tool_names = [t.name for t in tools]
         expected_manage = [
