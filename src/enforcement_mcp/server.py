@@ -1,10 +1,13 @@
 """FastMCP server setup for enforcement-mcp."""
 
+import hashlib
+import hmac
 import logging
+import time
 from pathlib import Path
 from typing import Annotated
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from pydantic import Field
 
 from .audit import write_audit_entry
@@ -132,11 +135,80 @@ _default_target: str | None = None
 _ssh_pool: dict[str, SSHBackend] = {}
 _identity_config: IdentityConfig | None = None
 
+# --- Escalation (sudo-like privilege elevation) ---
+_escalation_passphrase_hash: bytes | None = None
+_escalation_timeout: int = 1800
+_escalated_sessions: dict[str, float] = {}
+
+_MANAGEMENT_TOOL_NAMES = [
+    "manage.set_boolean", "manage.load_module", "manage.remove_module",
+    "manage.set_file_context", "manage.fapolicyd_trust_add",
+    "manage.fapolicyd_trust_remove", "manage.mls_assign_category",
+    "manage.mls_set_user_range",
+]
+
 
 def set_default_target(target: str) -> None:
     """Set the default SSH target (called from CLI --target)."""
     global _default_target
     _default_target = target
+
+
+def set_escalation_config(passphrase: str, timeout: int = 1800) -> None:
+    """Enable escalation mode — management tools require passphrase to unlock."""
+    global _escalation_passphrase_hash, _escalation_timeout
+    _escalation_passphrase_hash = hashlib.sha256(passphrase.encode()).digest()
+    _escalation_timeout = timeout
+    logger.info("Escalation mode enabled (timeout=%ds)", timeout)
+
+    @mcp.tool(name="manage.escalate")
+    async def tool_escalate(
+        passphrase: Annotated[str, Field(description="Operator-set escalation passphrase")],
+        reason: Annotated[str, Field(description="Why escalation is needed")] = "",
+        ctx: Context = None,
+    ) -> dict:
+        """Unlock management tools for this session. Requires the operator-set passphrase. Expires after timeout."""
+        provided = hashlib.sha256(passphrase.encode()).digest()
+        if not hmac.compare_digest(provided, _escalation_passphrase_hash):
+            logger.warning("Escalation denied (wrong passphrase), session=%s", _session_key(ctx))
+            return {"error": "escalation_denied", "message": "Invalid passphrase"}
+
+        key = _session_key(ctx)
+        _escalated_sessions[key] = time.time() + _escalation_timeout
+        logger.info("Escalation granted, session=%s, reason=%s, expires=%ds", key, reason, _escalation_timeout)
+        return {
+            "status": "escalated",
+            "expires_in_seconds": _escalation_timeout,
+            "tools_unlocked": _MANAGEMENT_TOOL_NAMES,
+        }
+
+
+def _session_key(ctx: Context | None) -> str:
+    if ctx:
+        try:
+            sid = ctx.session_id
+            if sid:
+                return sid
+        except RuntimeError:
+            pass
+    return "__default__"
+
+
+def _check_escalation(ctx: Context | None) -> dict | None:
+    """Returns error dict if escalation is required but not active. None means proceed."""
+    if _escalation_passphrase_hash is None:
+        return None
+    key = _session_key(ctx)
+    expiry = _escalated_sessions.get(key)
+    if expiry and time.time() < expiry:
+        return None
+    if expiry:
+        del _escalated_sessions[key]
+    return {
+        "error": "escalation_required",
+        "message": "Call manage.escalate with the operator passphrase first.",
+        "timeout_seconds": _escalation_timeout,
+    }
 
 
 async def _get_ssh(target: str | None = None) -> SSHBackend:
@@ -655,8 +727,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Toggle an SELinux boolean. Returns risk assessment and preview. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {"name": name, "value": value, "persistent": persistent, "dry_run": dry_run}
         caller, err = await _verify_and_authorize("manage.set_boolean", identity_token, tool_params, target)
         if err:
@@ -677,8 +753,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Load a CIL policy module into the running SELinux policy. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {"name": name, "dry_run": dry_run}
         caller, err = await _verify_and_authorize("manage.load_module", identity_token, tool_params, target)
         if err:
@@ -698,8 +778,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Remove a loaded SELinux policy module. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {"name": name, "dry_run": dry_run}
         caller, err = await _verify_and_authorize("manage.remove_module", identity_token, tool_params, target)
         if err:
@@ -722,8 +806,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Add a persistent file context rule and relabel. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {"path": path, "context_type": context_type, "dry_run": dry_run}
         caller, err = await _verify_and_authorize(
             "manage.set_file_context", identity_token, tool_params, target
@@ -746,8 +834,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Add a binary to fapolicyd ancillary trust. Checks setuid, location risk. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {"path": path, "reason": reason, "dry_run": dry_run}
         caller, err = await _verify_and_authorize(
             "manage.fapolicyd_trust_add", identity_token, tool_params, target
@@ -769,8 +861,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Remove a binary from fapolicyd trust. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {"path": path, "dry_run": dry_run}
         caller, err = await _verify_and_authorize(
             "manage.fapolicyd_trust_remove", identity_token, tool_params, target
@@ -794,8 +890,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Assign MLS categories to files. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {
             "path": path,
             "categories": categories,
@@ -825,8 +925,12 @@ if _tool_tier >= ToolTier.MANAGEMENT:
             str | None, Field(description="OAuth JWT or SPIFFE ID for caller identity")
         ] = None,
         target: TargetParam = None,
+        ctx: Context = None,
     ) -> dict:
         """Modify a user's MLS range. Hard-blocks root range restriction. Set dry_run=false to apply."""
+        esc = _check_escalation(ctx)
+        if esc:
+            return esc
         tool_params = {"login": login, "range_spec": range_spec, "dry_run": dry_run}
         caller, err = await _verify_and_authorize(
             "manage.mls_set_user_range", identity_token, tool_params, target

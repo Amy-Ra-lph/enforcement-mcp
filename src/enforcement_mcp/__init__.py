@@ -1,6 +1,7 @@
 """enforcement-mcp: SELinux, fapolicyd, and MLS policy intelligence for LLM agents."""
 
 import argparse
+import os
 
 __version__ = "0.5.1"
 
@@ -26,6 +27,17 @@ def main() -> None:
     )
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8100)
+    serve_parser.add_argument(
+        "--escalation-passphrase",
+        help="Enable sudo-like escalation for management tools. "
+        "Model must call manage.escalate with this passphrase to unlock mutating tools.",
+    )
+    serve_parser.add_argument(
+        "--escalation-timeout",
+        type=int,
+        default=1800,
+        help="Seconds before escalation expires (default: 1800 = 30 min)",
+    )
 
     # setup: configure MCP client
     setup_parser = sub.add_parser(
@@ -54,11 +66,19 @@ def main() -> None:
 
 
 def _run_server(args: argparse.Namespace) -> None:
-    from .server import mcp, set_default_target
+    passphrase = getattr(args, "escalation_passphrase", None)
+    if passphrase:
+        os.environ["ENFORCEMENT_MCP_TOOL_TIER"] = "management"
+
+    from .server import mcp, set_default_target, set_escalation_config
 
     target = getattr(args, "target", None)
     if target:
         set_default_target(target)
+
+    if passphrase:
+        timeout = getattr(args, "escalation_timeout", 1800)
+        set_escalation_config(passphrase, timeout)
 
     transport = getattr(args, "transport", "stdio")
     if transport == "stdio":
