@@ -123,12 +123,20 @@ async def generate_module(
         return check
 
     ts = parse_time_spec(from_denials)
-    cmd = f"timeout 15 ausearch -m AVC -ts {ts} 2>/dev/null"
-    if source_type:
-        cmd += f" | grep 'scontext=.*:{quote_arg(source_type)}:'"
-
+    cmd = f"timeout 15 ausearch --input-logs -m AVC -ts {ts}"
     result = await ssh.execute(cmd)
+
+    if result.exit_code > 1:
+        return {
+            "action": "generate_module",
+            "name": name,
+            "status": "collection_failed",
+            "message": f"ausearch failed (exit {result.exit_code}): {result.stderr.strip()[:200]}",
+        }
+
     denials = parse_avc_denials(result.stdout)
+    if source_type:
+        denials = [d for d in denials if d.get("source_type") == source_type]
 
     if not denials:
         return {

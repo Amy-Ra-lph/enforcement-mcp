@@ -25,8 +25,9 @@ async def host_posture(ssh: SSHBackend) -> dict:
     if config_result.success and "=" in config_result.stdout:
         policy_type = config_result.stdout.strip().split("=")[1]
 
-    avc_result = await ssh.execute("timeout 15 ausearch -m AVC -ts today 2>/dev/null")
-    avc_denials = parse_avc_denials(avc_result.stdout)
+    avc_result = await ssh.execute("timeout 15 ausearch --input-logs -m AVC -ts today")
+    avc_collection_ok = avc_result.exit_code <= 1
+    avc_denials = parse_avc_denials(avc_result.stdout) if avc_collection_ok else []
     denial_count = len(avc_denials)
 
     type_counts: dict[str, int] = {}
@@ -67,9 +68,8 @@ async def host_posture(ssh: SSHBackend) -> dict:
         fap_rules = int(fap_rules_result.stdout.strip()) if fap_rules_result.success else 0
         fap_trust_result = await ssh.execute("fapolicyd-cli --list 2>/dev/null | wc -l")
         fap_trust = int(fap_trust_result.stdout.strip()) if fap_trust_result.success else 0
-        fap_cmd = "timeout 15 ausearch -m FANOTIFY -ts today 2>/dev/null"
-        fap_denials_result = await ssh.execute(fap_cmd)
-        fap_denial_list = parse_fanotify_denials(fap_denials_result.stdout)
+        fap_denials_result = await ssh.execute("timeout 15 ausearch --input-logs -m FANOTIFY -ts today")
+        fap_denial_list = parse_fanotify_denials(fap_denials_result.stdout) if fap_denials_result.exit_code <= 1 else []
 
         fapolicyd_info = {
             "installed": True,
@@ -90,6 +90,15 @@ async def host_posture(ssh: SSHBackend) -> dict:
 
     score = 100
     findings = []
+    collection_errors = []
+
+    if not avc_collection_ok:
+        collection_errors.append({
+            "command": "ausearch -m AVC",
+            "exit_code": avc_result.exit_code,
+            "detail": avc_result.stderr.strip()[:200] or f"exit code {avc_result.exit_code}",
+        })
+        findings.append("WARNING: AVC denial collection failed — score may be inaccurate")
 
     if mode != "enforcing":
         score -= 30
@@ -110,13 +119,16 @@ async def host_posture(ssh: SSHBackend) -> dict:
 
     score = max(0, score)
 
-    return {
+    result = {
         "selinux": selinux_info,
         "fapolicyd": fapolicyd_info,
         "mls": mls_info,
         "posture_score": score,
         "findings": findings,
     }
+    if collection_errors:
+        result["collection_errors"] = collection_errors
+    return result
 
 
 async def troubleshoot(
@@ -135,6 +147,7 @@ async def troubleshoot(
     chain = []
     denials_found: list[dict] = []
     not_the_cause = []
+    collection_errors: list[dict] = []
     offline = raw_avc_text is not None or raw_fanotify_text is not None
 
     if offline:
@@ -196,50 +209,79 @@ async def troubleshoot(
             except SanitizationError as e:
                 return e.to_dict()
             avc_result = await ssh.execute(
-                f"timeout 15 ausearch -m AVC -ts recent 2>/dev/null | grep {quote_arg(process)}"
+                "timeout 15 ausearch --input-logs -m AVC -ts recent"
             )
-            avc_denials_list = parse_avc_denials(avc_result.stdout)
-            if avc_denials_list:
-                chain.append(
-                    {
-                        "step": f"AVC denials for {process}",
-                        "finding": f"{len(avc_denials_list)} denial(s) found",
-                    }
-                )
-                denials_found.extend(avc_denials_list)
+            if avc_result.exit_code > 1:
+                collection_errors.append({
+                    "subsystem": "selinux",
+                    "command": "ausearch -m AVC",
+                    "exit_code": avc_result.exit_code,
+                    "detail": avc_result.stderr.strip()[:200] or f"exit code {avc_result.exit_code}",
+                })
+                chain.append({
+                    "step": f"AVC denials for {process}",
+                    "finding": f"COLLECTION FAILED (exit {avc_result.exit_code})",
+                })
             else:
-                chain.append({"step": f"AVC denials for {process}", "finding": "none"})
-                not_the_cause.append(
-                    {
-                        "subsystem": "selinux",
-                        "reason": f"No AVC denials for {process}",
-                    }
-                )
+                avc_denials_list = parse_avc_denials(avc_result.stdout)
+                if process:
+                    avc_denials_list = [
+                        d for d in avc_denials_list
+                        if d.get("comm") == process or process in str(d.get("source_type", ""))
+                    ]
+                if avc_denials_list:
+                    chain.append(
+                        {
+                            "step": f"AVC denials for {process}",
+                            "finding": f"{len(avc_denials_list)} denial(s) found",
+                        }
+                    )
+                    denials_found.extend(avc_denials_list)
+                else:
+                    chain.append({"step": f"AVC denials for {process}", "finding": "none"})
+                    not_the_cause.append(
+                        {
+                            "subsystem": "selinux",
+                            "reason": f"No AVC denials for {process}",
+                        }
+                    )
         elif mode == "disabled":
             not_the_cause.append({"subsystem": "selinux", "reason": "SELinux is disabled"})
 
         fap_installed = (await ssh.execute("rpm -q fapolicyd 2>/dev/null")).exit_code == 0
         if fap_installed:
-            fap_result = await ssh.execute("timeout 15 ausearch -m FANOTIFY -ts recent 2>/dev/null")
-            fap_denials = parse_fanotify_denials(fap_result.stdout)
-            if path:
-                fap_denials = [d for d in fap_denials if path in str(d.get("exe", ""))]
-            if fap_denials:
-                chain.append(
-                    {
-                        "step": "fapolicyd denials",
-                        "finding": f"{len(fap_denials)} denial(s) found",
-                    }
-                )
-                denials_found.extend(fap_denials)
+            fap_result = await ssh.execute("timeout 15 ausearch --input-logs -m FANOTIFY -ts recent")
+            if fap_result.exit_code > 1:
+                collection_errors.append({
+                    "subsystem": "fapolicyd",
+                    "command": "ausearch -m FANOTIFY",
+                    "exit_code": fap_result.exit_code,
+                    "detail": fap_result.stderr.strip()[:200] or f"exit code {fap_result.exit_code}",
+                })
+                chain.append({
+                    "step": "fapolicyd denials",
+                    "finding": f"COLLECTION FAILED (exit {fap_result.exit_code})",
+                })
             else:
-                chain.append({"step": "fapolicyd denials", "finding": "none"})
-                not_the_cause.append(
-                    {
-                        "subsystem": "fapolicyd",
-                        "reason": "No FANOTIFY denials",
-                    }
-                )
+                fap_denials = parse_fanotify_denials(fap_result.stdout)
+                if path:
+                    fap_denials = [d for d in fap_denials if path in str(d.get("exe", ""))]
+                if fap_denials:
+                    chain.append(
+                        {
+                            "step": "fapolicyd denials",
+                            "finding": f"{len(fap_denials)} denial(s) found",
+                        }
+                    )
+                    denials_found.extend(fap_denials)
+                else:
+                    chain.append({"step": "fapolicyd denials", "finding": "none"})
+                    not_the_cause.append(
+                        {
+                            "subsystem": "fapolicyd",
+                            "reason": "No FANOTIFY denials",
+                        }
+                    )
         else:
             not_the_cause.append(
                 {
@@ -266,6 +308,7 @@ async def troubleshoot(
 
     root_cause = "unknown"
     confidence = "low"
+    had_collection_errors = bool(collection_errors)
 
     selinux_denials = [d for d in denials_found if "source_type" in d]
     fapolicyd_denials_found = [d for d in denials_found if "obj_trust" in d]
@@ -277,8 +320,12 @@ async def troubleshoot(
         root_cause = "fapolicyd"
         confidence = "high"
     elif not denials_found:
-        root_cause = "not_enforcement"
-        confidence = "high"
+        if had_collection_errors:
+            root_cause = "collection_incomplete"
+            confidence = "low"
+        else:
+            root_cause = "not_enforcement"
+            confidence = "high"
 
     result: dict = {
         "symptom": symptom,
@@ -289,7 +336,17 @@ async def troubleshoot(
         "not_the_cause": not_the_cause,
     }
 
-    if root_cause == "not_enforcement":
+    if had_collection_errors:
+        result["collection_errors"] = collection_errors
+
+    if root_cause == "collection_incomplete":
+        result["suggestions"] = [
+            "Audit data collection failed — results are incomplete",
+            "Check that ausearch/audit-libs is installed on the target",
+            "Verify the SSH user has permission to read /var/log/audit/",
+            "Retry after fixing collection issues before ruling out enforcement",
+        ]
+    elif root_cause == "not_enforcement":
         result["suggestions"] = [
             "Check application configuration",
             "Check application error logs",

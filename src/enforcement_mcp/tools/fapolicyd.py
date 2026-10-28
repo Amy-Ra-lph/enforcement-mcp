@@ -72,9 +72,21 @@ async def fapolicyd_denials(
         return FAPOLICYD_NOT_INSTALLED_ERROR
 
     ts = parse_time_spec(since)
-    result = await ssh.execute(f"timeout 15 ausearch -m FANOTIFY -ts {ts} 2>/dev/null")
-    parsed = parse_fanotify_denials(result.stdout)
+    result = await ssh.execute(f"timeout 15 ausearch --input-logs -m FANOTIFY -ts {ts}")
 
+    if result.exit_code > 1:
+        return {
+            "denials": [],
+            "total": 0,
+            "since": since,
+            "collection_error": {
+                "command": "ausearch -m FANOTIFY",
+                "exit_code": result.exit_code,
+                "detail": result.stderr.strip()[:500] or f"exit code {result.exit_code}",
+            },
+        }
+
+    parsed = parse_fanotify_denials(result.stdout)
     return {"denials": parsed, "total": len(parsed), "since": since}
 
 

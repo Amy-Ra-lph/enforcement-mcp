@@ -1,16 +1,21 @@
-"""Convert human-readable time specs to ausearch timestamp format."""
+"""Convert human-readable time specs to ausearch timestamp format.
+
+Uses target-side $(date) shell substitution so the timestamp is
+computed in the target host's timezone, not the controller's.
+"""
 
 import re
-from datetime import UTC, datetime, timedelta
 
 from ._hardening import validate_input_size
 
+_UNIT_WORDS = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
+
 
 def parse_time_spec(spec: str) -> str:
-    """Convert '1h', '30m', '7d' to ausearch -ts format (MM/DD/YYYY HH:MM:SS).
+    """Convert '1h', '30m', '7d' to a shell expression for ausearch -ts.
 
-    Also accepts 'recent' (ausearch built-in, last 10 minutes)
-    and 'today'/'yesterday' (ausearch built-in).
+    Returns either an ausearch built-in keyword (recent/today/yesterday)
+    or a $(date ...) expression evaluated on the target host.
     """
     validate_input_size(spec, "parse_time_spec")
     spec = spec.strip().lower()
@@ -25,8 +30,4 @@ def parse_time_spec(spec: str) -> str:
     amount = int(match.group(1))
     unit = match.group(2)
 
-    delta_map = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
-    delta = timedelta(**{delta_map[unit]: amount})
-    target = datetime.now(UTC) - delta
-
-    return target.strftime("%m/%d/%Y %H:%M:%S")
+    return f"$(date -d '-{amount} {_UNIT_WORDS[unit]}' '+%m/%d/%Y %H:%M:%S')"

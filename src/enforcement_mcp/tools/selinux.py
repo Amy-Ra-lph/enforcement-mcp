@@ -68,13 +68,26 @@ async def avc_denials(
         return SELINUX_DISABLED_ERROR
 
     ts = parse_time_spec(since)
-    cmd = f"timeout 15 ausearch -m AVC -ts {ts} 2>/dev/null"
-    if source_type:
-        cmd += f" | grep {quote_arg(f'scontext=.*:{source_type}:')}"
-
+    cmd = f"timeout 15 ausearch --input-logs -m AVC -ts {ts}"
     result = await ssh.execute(cmd)
+
+    if result.exit_code > 1:
+        return {
+            "denials": [],
+            "total": 0,
+            "since": since,
+            "mode": mode,
+            "collection_error": {
+                "command": "ausearch -m AVC",
+                "exit_code": result.exit_code,
+                "detail": result.stderr.strip()[:500] or f"exit code {result.exit_code}",
+            },
+        }
+
     parsed = parse_avc_denials(result.stdout)
     denials = [AvcDenial(**d).model_dump() for d in parsed if "source_type" in d]
+    if source_type:
+        denials = [d for d in denials if d.get("source_type") == source_type]
 
     return {"denials": denials, "total": len(denials), "since": since, "mode": mode}
 
