@@ -25,7 +25,7 @@ print(json.dumps({"tier": _tool_tier.name, "total": len(names),
                    "diagnosis": len(diag), "manage": len(manage),
                    "manage_names": manage}))
 """
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603
         [sys.executable, "-c", code],
         capture_output=True, text=True, env=env, timeout=30,
     )

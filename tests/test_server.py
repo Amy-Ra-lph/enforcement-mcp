@@ -2,8 +2,8 @@
 
 import pytest
 
-from enforcement_mcp.server import mcp, _tool_tier
 from enforcement_mcp.models.identity import ToolTier
+from enforcement_mcp.server import _tool_tier, mcp
 
 _TIER_TOOL_COUNTS = {
     ToolTier.DIAGNOSIS: 18,

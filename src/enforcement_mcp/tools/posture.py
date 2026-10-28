@@ -68,8 +68,12 @@ async def host_posture(ssh: SSHBackend) -> dict:
         fap_rules = int(fap_rules_result.stdout.strip()) if fap_rules_result.success else 0
         fap_trust_result = await ssh.execute("fapolicyd-cli --list 2>/dev/null | wc -l")
         fap_trust = int(fap_trust_result.stdout.strip()) if fap_trust_result.success else 0
-        fap_denials_result = await ssh.execute("timeout 15 ausearch --input-logs -m FANOTIFY -ts today")
-        fap_denial_list = parse_fanotify_denials(fap_denials_result.stdout) if fap_denials_result.exit_code <= 1 else []
+        fap_cmd = "timeout 15 ausearch --input-logs -m FANOTIFY -ts today"
+        fap_denials_result = await ssh.execute(fap_cmd)
+        if fap_denials_result.exit_code <= 1:
+            fap_denial_list = parse_fanotify_denials(fap_denials_result.stdout)
+        else:
+            fap_denial_list = []
 
         fapolicyd_info = {
             "installed": True,
@@ -216,7 +220,8 @@ async def troubleshoot(
                     "subsystem": "selinux",
                     "command": "ausearch -m AVC",
                     "exit_code": avc_result.exit_code,
-                    "detail": avc_result.stderr.strip()[:200] or f"exit code {avc_result.exit_code}",
+                    "detail": (avc_result.stderr.strip()[:200]
+                              or f"exit code {avc_result.exit_code}"),
                 })
                 chain.append({
                     "step": f"AVC denials for {process}",
@@ -250,13 +255,16 @@ async def troubleshoot(
 
         fap_installed = (await ssh.execute("rpm -q fapolicyd 2>/dev/null")).exit_code == 0
         if fap_installed:
-            fap_result = await ssh.execute("timeout 15 ausearch --input-logs -m FANOTIFY -ts recent")
+            fap_cmd = "timeout 15 ausearch --input-logs -m FANOTIFY -ts recent"
+            fap_result = await ssh.execute(fap_cmd)
             if fap_result.exit_code > 1:
+                detail = (fap_result.stderr.strip()[:200]
+                          or f"exit code {fap_result.exit_code}")
                 collection_errors.append({
                     "subsystem": "fapolicyd",
                     "command": "ausearch -m FANOTIFY",
                     "exit_code": fap_result.exit_code,
-                    "detail": fap_result.stderr.strip()[:200] or f"exit code {fap_result.exit_code}",
+                    "detail": detail,
                 })
                 chain.append({
                     "step": "fapolicyd denials",

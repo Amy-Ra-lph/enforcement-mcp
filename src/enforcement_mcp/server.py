@@ -13,9 +13,8 @@ from pydantic import Field
 from .audit import write_audit_entry
 from .authz import check_authorization
 from .config import IdentityConfig, get_host_config, get_identity_config, get_tool_tier
-from .models.identity import ToolTier
 from .identity import IdentityVerificationError, anonymous_identity, verify_identity
-from .models.identity import CallerIdentity  # ToolTier imported above
+from .models.identity import CallerIdentity, ToolTier
 from .ssh import SSHBackend
 from .tools import (
     active_containments,

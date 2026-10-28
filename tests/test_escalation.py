@@ -1,8 +1,9 @@
 """Tests for the escalation (sudo-like) system."""
 
+import contextlib
 import hashlib
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,10 +21,8 @@ def _reset_escalation():
     server._escalation_timeout = orig_timeout
     server._escalated_sessions.clear()
     server._escalated_sessions.update(orig_sessions)
-    try:
+    with contextlib.suppress(Exception):
         server.mcp.remove_tool("manage.escalate")
-    except Exception:
-        pass
 
 
 def _make_ctx(session_id: str = "test-session") -> MagicMock:
