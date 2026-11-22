@@ -1,5 +1,7 @@
 """Composite diagnosis tools — host posture and troubleshoot."""
 
+from __future__ import annotations
+
 from enforcement_mcp.parsers import (
     parse_avc_denials,
     parse_fanotify_denials,
@@ -13,10 +15,14 @@ from enforcement_mcp.sanitize import (
     sanitize_path,
     sanitize_process_name,
 )
+from enforcement_mcp.scoring import ScoringProfile, compute_score, get_profile
 from enforcement_mcp.ssh import SSHBackend
 
 
-async def host_posture(ssh: SSHBackend) -> dict:
+async def host_posture(
+    ssh: SSHBackend,
+    scoring_profile: str | ScoringProfile | None = None,
+) -> dict:
     """Comprehensive security posture summary."""
     mode = parse_getenforce((await ssh.execute("getenforce")).stdout)
 
@@ -92,8 +98,6 @@ async def host_posture(ssh: SSHBackend) -> dict:
         "user_mappings": len(mls_mappings),
     }
 
-    score = 100
-    findings = []
     collection_errors = []
 
     if not avc_collection_ok:
@@ -102,33 +106,39 @@ async def host_posture(ssh: SSHBackend) -> dict:
             "exit_code": avc_result.exit_code,
             "detail": avc_result.stderr.strip()[:200] or f"exit code {avc_result.exit_code}",
         })
+
+    profile = (
+        scoring_profile
+        if isinstance(scoring_profile, ScoringProfile)
+        else get_profile(scoring_profile)
+    )
+
+    score, scored_findings = compute_score(
+        profile,
+        mode=mode,
+        denial_count=denial_count,
+        fap_installed=fap_installed,
+        fap_active=fapolicyd_info.get("active", False),
+        aide_configured=True,
+        aide_changes=0,
+        non_default_bools=len(non_default),
+    )
+
+    findings = []
+    if not avc_collection_ok:
         findings.append("WARNING: AVC denial collection failed — score may be inaccurate")
-
-    if mode != "enforcing":
-        score -= 30
-        findings.append(f"-30: SELinux mode is {mode}, not enforcing")
-    if denial_count > 0:
-        penalty = min(denial_count, 20)
-        score -= penalty
-        findings.append(f"-{penalty}: {denial_count} AVC denials in last 24h")
-    if not fap_installed:
-        score -= 15
-        findings.append("-15: fapolicyd not installed")
-    elif not fapolicyd_info.get("active"):
-        score -= 10
-        findings.append("-10: fapolicyd installed but not active")
-    if len(non_default) > 5:
-        score -= 5
-        findings.append(f"-5: {len(non_default)} non-default SELinux booleans enabled")
-
-    score = max(0, score)
+    for f in scored_findings:
+        findings.append(f"-{f['penalty']}: {f['description']}")
 
     result = {
         "selinux": selinux_info,
         "fapolicyd": fapolicyd_info,
         "mls": mls_info,
         "posture_score": score,
+        "scoring_profile": profile.name,
+        "scoring_framework": profile.framework,
         "findings": findings,
+        "scored_findings": scored_findings,
     }
     if collection_errors:
         result["collection_errors"] = collection_errors

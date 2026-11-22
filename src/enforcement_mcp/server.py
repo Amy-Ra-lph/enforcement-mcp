@@ -344,10 +344,21 @@ async def tool_troubleshoot(
 @mcp.tool(name="diagnosis.host_posture")
 async def tool_host_posture(
     target: TargetParam = None,
+    scoring_profile: Annotated[
+        str | None,
+        Field(description="Scoring profile: nist (default), cis, stig, or ccss"),
+    ] = None,
 ) -> dict:
-    """Comprehensive security posture summary — SELinux, fapolicyd, MLS, with a 0-100 score."""
+    """Comprehensive security posture summary — SELinux, fapolicyd, MLS, with a 0-100 score.
+
+    Scoring profiles map penalty weights to industry standards:
+    - nist: NIST SP 800-53 Rev 5 control baselines (default)
+    - cis: CIS Red Hat Enterprise Linux 9 Benchmark v2.0.0
+    - stig: DISA RHEL 9 STIG V2R9
+    - ccss: NISTIR 7502 Common Configuration Scoring System
+    """
     ssh = await _get_ssh(target)
-    return await host_posture(ssh)
+    return await host_posture(ssh, scoring_profile=scoring_profile)
 
 
 @mcp.tool(name="diagnosis.avc_denials")
