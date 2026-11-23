@@ -11,6 +11,7 @@ class ScoringProfile:
 
     Each weight maps to a specific control ID in the profile's framework.
     Score starts at 100 and deducts penalties. Floor is 0.
+    Critical rules trigger immediate FAIL regardless of score.
     """
 
     name: str
@@ -26,6 +27,7 @@ class ScoringProfile:
     bool_threshold: int
     bool_penalty: int
     control_ids: dict[str, str] = field(default_factory=dict)
+    critical_rules: dict[str, bool] = field(default_factory=dict)
 
 
 NIST = ScoringProfile(
@@ -47,6 +49,11 @@ NIST = ScoringProfile(
         "fapolicyd": "CM-14 (Signed Components) + CM-6 (Config Settings) — Moderate baseline",
         "aide": "SI-7 (Software, Firmware, and Information Integrity) — Moderate baseline",
         "booleans": "CM-6 (Configuration Settings) — Low baseline",
+    },
+    critical_rules={
+        "selinux_not_enforcing": True,
+        "aide_not_configured": True,
+        "fapolicyd_not_installed": False,
     },
 )
 
@@ -70,6 +77,11 @@ CIS = ScoringProfile(
         "aide": "1.3.1 Ensure AIDE is installed (L1, Scored)",
         "booleans": "1.5.1.4+ SELinux booleans (L2, Not Scored)",
     },
+    critical_rules={
+        "selinux_not_enforcing": True,
+        "aide_not_configured": True,
+        "fapolicyd_not_installed": False,
+    },
 )
 
 STIG = ScoringProfile(
@@ -86,11 +98,16 @@ STIG = ScoringProfile(
     bool_threshold=5,
     bool_penalty=5,
     control_ids={
-        "selinux_mode": "RHEL-09-431010 / V-258078 (CAT II)",
+        "selinux_mode": "RHEL-09-431010 / V-258078 (CAT I)",
         "avc_denials": "Runtime finding (no STIG rule)",
         "fapolicyd": "RHEL-09-653010 / V-258089 (CAT II)",
-        "aide": "RHEL-09-651010 / V-258134 (CAT II)",
+        "aide": "RHEL-09-651010 / V-258134 (CAT I)",
         "booleans": "RHEL-09-431025 (CAT II)",
+    },
+    critical_rules={
+        "selinux_not_enforcing": True,
+        "aide_not_configured": True,
+        "fapolicyd_not_installed": True,
     },
 )
 
@@ -113,6 +130,11 @@ CCSS = ScoringProfile(
         "fapolicyd": "CCSS Base ~4.5 (AV:L/AC:L/Au:N/C:N/I:P/A:N)",
         "aide": "CCSS Base ~4.0 (AV:L/AC:L/Au:N/C:N/I:P/A:N)",
         "booleans": "CCSS Base ~1.0",
+    },
+    critical_rules={
+        "selinux_not_enforcing": True,
+        "aide_not_configured": False,
+        "fapolicyd_not_installed": False,
     },
 )
 
@@ -146,22 +168,31 @@ def compute_score(
     aide_configured: bool,
     aide_changes: int,
     non_default_bools: int,
-) -> tuple[int, list[dict]]:
-    """Compute posture score and findings with control ID citations.
+) -> tuple[int, list[dict], str]:
+    """Compute posture score, findings, and pass/fail verdict.
 
-    Returns (score, findings) where each finding is a dict with
-    penalty, description, and control_id fields.
+    Returns (score, findings, verdict) where verdict is "PASS" or "FAIL".
+    Critical findings set verdict to FAIL regardless of score.
+    Each finding has penalty, description, control_id, and severity fields.
     """
     score = 100
     findings: list[dict] = []
+    has_critical = False
+
+    def _is_critical(rule_key: str) -> bool:
+        return profile.critical_rules.get(rule_key, False)
 
     if mode != "enforcing":
         p = profile.selinux_not_enforcing
+        crit = _is_critical("selinux_not_enforcing")
         score -= p
+        if crit:
+            has_critical = True
         findings.append({
             "penalty": p,
             "description": f"SELinux mode is {mode}, not enforcing",
             "control_id": profile.control_ids.get("selinux_mode", ""),
+            "severity": "CRITICAL" if crit else "HIGH",
         })
 
     if denial_count > 0:
@@ -171,15 +202,20 @@ def compute_score(
             "penalty": p,
             "description": f"{denial_count} AVC denials in last 24h",
             "control_id": profile.control_ids.get("avc_denials", ""),
+            "severity": "MEDIUM",
         })
 
     if not fap_installed:
         p = profile.fapolicyd_not_installed
+        crit = _is_critical("fapolicyd_not_installed")
         score -= p
+        if crit:
+            has_critical = True
         findings.append({
             "penalty": p,
             "description": "fapolicyd not installed",
             "control_id": profile.control_ids.get("fapolicyd", ""),
+            "severity": "CRITICAL" if crit else "HIGH",
         })
     elif not fap_active:
         p = profile.fapolicyd_inactive
@@ -188,15 +224,20 @@ def compute_score(
             "penalty": p,
             "description": "fapolicyd installed but not active",
             "control_id": profile.control_ids.get("fapolicyd", ""),
+            "severity": "HIGH",
         })
 
     if not aide_configured:
         p = profile.aide_not_configured
+        crit = _is_critical("aide_not_configured")
         score -= p
+        if crit:
+            has_critical = True
         findings.append({
             "penalty": p,
             "description": "AIDE not configured or database missing",
             "control_id": profile.control_ids.get("aide", ""),
+            "severity": "CRITICAL" if crit else "HIGH",
         })
     elif aide_changes > 0:
         p = min(aide_changes * profile.aide_per_change, profile.aide_change_cap)
@@ -205,6 +246,7 @@ def compute_score(
             "penalty": p,
             "description": f"AIDE detected {aide_changes} changes since baseline",
             "control_id": profile.control_ids.get("aide", ""),
+            "severity": "MEDIUM",
         })
 
     if non_default_bools > profile.bool_threshold:
@@ -214,6 +256,8 @@ def compute_score(
             "penalty": p,
             "description": f"{non_default_bools} non-default SELinux booleans enabled",
             "control_id": profile.control_ids.get("booleans", ""),
+            "severity": "LOW",
         })
 
-    return max(0, score), findings
+    verdict = "FAIL" if has_critical else "PASS"
+    return max(0, score), findings, verdict
